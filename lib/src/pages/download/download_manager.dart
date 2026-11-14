@@ -1,12 +1,15 @@
 import 'dart:io';
 
 import 'package:dio/dio.dart';
+import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:xs/src/pages/download/download_settings.dart';
 import 'package:xs/src/pages/download/models/download_task.dart';
+import 'package:xs/src/utils/notification.dart';
 
-/// 离线缓存管理器：负责任务持久化、下载、暂停/继续与本地文件清理。
+/// 离线缓存管理器：负责任务持久化、并发队列、暂停/继续与本地文件清理。
 class DownloadManager extends GetxController {
   static DownloadManager get instance => Get.find<DownloadManager>();
 
@@ -22,6 +25,14 @@ class DownloadManager extends GetxController {
   final Map<String, CancelToken> _cancelTokens = {};
 
   bool _initialized = false;
+
+  int get maxConcurrent => DownloadSettingsStorage.maxConcurrent;
+
+  int get activeCount =>
+      tasks.where((e) => e.status == DownloadStatus.downloading).length;
+
+  int get queuedCount =>
+      tasks.where((e) => e.status == DownloadStatus.queued).length;
 
   List<DownloadTask> get activeTasks =>
       tasks.where((e) => !e.isCompleted).toList();
@@ -46,6 +57,7 @@ class DownloadManager extends GetxController {
       tasks.assignAll(restored);
       _save();
     }
+    _pump();
   }
 
   /// 查找可用的本地缓存文件；优先匹配当前线路。
@@ -59,7 +71,9 @@ class DownloadManager extends GetxController {
       return null;
     }
     final sameLine = matched.where((e) => e.lineIndex == lineIndex);
-    return sameLine.isNotEmpty ? sameLine.first.filePath : matched.first.filePath;
+    return sameLine.isNotEmpty
+        ? sameLine.first.filePath
+        : matched.first.filePath;
   }
 
   Future<bool> addTask({
@@ -71,17 +85,12 @@ class DownloadManager extends GetxController {
     required int lineIndex,
     required String url,
   }) async {
-    final exists = tasks.any(
-        (e) => e.bangumiId == bangumiId && e.episode == episode);
+    final exists =
+        tasks.any((e) => e.bangumiId == bangumiId && e.episode == episode);
     if (exists) {
       return false;
     }
-    final directory = await getApplicationSupportDirectory();
-    final downloadDir =
-        Directory('${directory.path}${Platform.pathSeparator}downloads');
-    if (!await downloadDir.exists()) {
-      await downloadDir.create(recursive: true);
-    }
+    final downloadDir = await resolveDirectory();
     final fileName =
         '${bangumiId}_${episode}_$lineIndex.${_extensionFromUrl(url)}';
     final task = DownloadTask(
@@ -95,19 +104,43 @@ class DownloadManager extends GetxController {
       filePath: '${downloadDir.path}${Platform.pathSeparator}$fileName',
       received: 0,
       total: 0,
-      status: DownloadStatus.downloading,
+      status: DownloadStatus.queued,
       createdAt: DateTime.now().millisecondsSinceEpoch,
     );
     tasks.add(task);
     _save();
-    _start(task);
+    _pump();
     return true;
+  }
+
+  /// 解析缓存目录：优先使用用户自定义目录，不可用时回退到默认目录。
+  Future<Directory> resolveDirectory() async {
+    final custom = DownloadSettingsStorage.directory.trim();
+    if (custom.isNotEmpty) {
+      try {
+        final dir = Directory(custom);
+        if (!await dir.exists()) {
+          await dir.create(recursive: true);
+        }
+        return dir;
+      } catch (_) {
+        DownloadSettingsStorage.setDirectory('');
+        SmartDialog.showToast('自定义缓存目录不可用，已恢复默认目录');
+      }
+    }
+    final base = await getApplicationSupportDirectory();
+    final dir = Directory('${base.path}${Platform.pathSeparator}downloads');
+    if (!await dir.exists()) {
+      await dir.create(recursive: true);
+    }
+    return dir;
   }
 
   void pause(DownloadTask task) {
     _cancelTokens[task.key]?.cancel();
-    _update(task.key, status: DownloadStatus.paused);
+    _update(task.key, status: DownloadStatus.paused, received: task.received);
     _save();
+    _pump();
   }
 
   void resume(DownloadTask task) {
@@ -116,16 +149,45 @@ class DownloadManager extends GetxController {
       return;
     }
     final current = tasks[index];
-    if (current.status == DownloadStatus.downloading || current.isCompleted) {
+    if (current.status == DownloadStatus.downloading ||
+        current.status == DownloadStatus.queued ||
+        current.isCompleted) {
       return;
     }
     tasks[index] = current.copyWith(
-      status: DownloadStatus.downloading,
+      status: DownloadStatus.queued,
       received: 0,
       total: 0,
     );
     _save();
-    _start(tasks[index]);
+    _pump();
+  }
+
+  /// 暂停全部进行中的任务。
+  void pauseAll() {
+    for (final task in tasks
+        .where((e) =>
+            e.status == DownloadStatus.downloading ||
+            e.status == DownloadStatus.queued)
+        .toList()) {
+      if (task.status == DownloadStatus.downloading) {
+        pause(task);
+      } else {
+        _update(task.key, status: DownloadStatus.paused);
+      }
+    }
+    _save();
+  }
+
+  /// 继续全部被暂停/失败的任务。
+  void resumeAll() {
+    for (final task in tasks
+        .where((e) =>
+            e.status == DownloadStatus.paused ||
+            e.status == DownloadStatus.failed)
+        .toList()) {
+      resume(task);
+    }
   }
 
   Future<void> cancel(DownloadTask task) async {
@@ -134,12 +196,37 @@ class DownloadManager extends GetxController {
     tasks.removeWhere((e) => e.key == task.key);
     _save();
     await _deleteFile(task.filePath);
+    _pump();
   }
 
   Future<void> delete(DownloadTask task) async {
+    _cancelTokens[task.key]?.cancel();
+    _cancelTokens.remove(task.key);
     tasks.removeWhere((e) => e.key == task.key);
     _save();
     await _deleteFile(task.filePath);
+    _pump();
+  }
+
+  /// 批量删除任务与本地文件。
+  Future<void> deleteMany(Iterable<DownloadTask> items) async {
+    for (final task in items.toList()) {
+      _cancelTokens[task.key]?.cancel();
+      _cancelTokens.remove(task.key);
+      tasks.removeWhere((e) => e.key == task.key);
+      await _deleteFile(task.filePath);
+    }
+    _save();
+    _pump();
+  }
+
+  Future<void> clearCompleted() async {
+    await deleteMany(completedTasks.toList());
+  }
+
+  /// 设置变更后重新排空队列。
+  void onConcurrencyChanged() {
+    _pump();
   }
 
   Future<void> _start(DownloadTask task) async {
@@ -162,10 +249,19 @@ class DownloadManager extends GetxController {
           );
         },
       );
+      if (!tasks.any((e) => e.key == task.key)) {
+        return;
+      }
       final length = File(task.filePath).lengthSync();
       _update(task.key,
           status: DownloadStatus.completed, received: length, total: length);
       _save();
+      if (DownloadSettingsStorage.notifyOnComplete) {
+        NotificationService.show(
+          '离线缓存完成',
+          '${task.title} 第${task.episode}集',
+        );
+      }
     } on DioException catch (e) {
       if (!CancelToken.isCancel(e)) {
         _update(task.key, status: DownloadStatus.failed);
@@ -178,6 +274,28 @@ class DownloadManager extends GetxController {
       if (_cancelTokens[task.key] == cancelToken) {
         _cancelTokens.remove(task.key);
       }
+      _pump();
+    }
+  }
+
+  /// 在并发上限内启动排队中的任务。
+  void _pump() {
+    var changed = false;
+    while (activeCount < maxConcurrent) {
+      final index = tasks.indexWhere((e) => e.status == DownloadStatus.queued);
+      if (index == -1) {
+        break;
+      }
+      tasks[index] = tasks[index].copyWith(
+        status: DownloadStatus.downloading,
+        received: 0,
+        total: 0,
+      );
+      changed = true;
+      _start(tasks[index]);
+    }
+    if (changed) {
+      _save();
     }
   }
 

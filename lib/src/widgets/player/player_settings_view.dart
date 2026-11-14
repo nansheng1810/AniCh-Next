@@ -4,6 +4,7 @@ import 'package:get/get.dart';
 import 'package:xs/src/pages/bangumi_vod/controller.dart';
 import 'package:xs/src/pages/settings/storage/playback_markers.dart';
 import 'package:xs/src/pages/settings/storage/player_storage.dart';
+import 'package:xs/src/pages/settings/storage/smart_intro_storage.dart';
 import 'package:xs/src/utils/app_style.dart';
 import 'package:xs/src/utils/utils.dart';
 import 'package:xs/src/widgets/player/controller.dart';
@@ -287,6 +288,42 @@ class _PlayerSettingsViewState extends State<PlayerSettingsView> {
             ],
           ),
         ),
+        _sectionTitle('智能片头（增强）'),
+        SettingsCard(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SettingsSwitch(
+                title: '智能学习片头',
+                subtitle: '记录你从片头区域快进到的位置，重复两次后自动跳过',
+                value: PlayerSettingsStorage.smartSkipIntro,
+                onChanged: (value) {
+                  PlayerSettingsStorage.setSmartSkipIntro(value);
+                  _refresh();
+                },
+              ),
+              AppStyle.divider,
+              ListTile(
+                title: const Text('已学习片头结束'),
+                subtitle: Text(
+                  SmartIntroStorage.learned(controller.id) > 0
+                      ? _markerText(SmartIntroStorage.learned(controller.id))
+                      : '暂无，多看几集后自动学习',
+                ),
+              ),
+              AppStyle.divider,
+              TextButton.icon(
+                onPressed: () {
+                  SmartIntroStorage.clear(controller.id);
+                  _refresh();
+                  SmartDialog.showToast('已清除智能片头学习记录');
+                },
+                icon: const Icon(Icons.restart_alt, size: 16),
+                label: const Text('清除学习记录'),
+              ),
+            ],
+          ),
+        ),
         _sectionTitle('A-B 循环（增强）'),
         Obx(
           () => SettingsCard(
@@ -322,6 +359,43 @@ class _PlayerSettingsViewState extends State<PlayerSettingsView> {
                       ),
                     ],
                   ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        _sectionTitle('投屏（增强）'),
+        SettingsCard(
+          child: ListTile(
+            title: const Text('投屏到电视（DLNA）'),
+            subtitle: const Text('搜索局域网内的电视/盒子并推送当前视频'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: controller.showDlnaSheet,
+          ),
+        ),
+        _sectionTitle('线路（增强）'),
+        Obx(
+          () => SettingsCard(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SettingsSwitch(
+                  title: '自动选择最快线路',
+                  subtitle: '进入剧集时测试全部线路并自动切换',
+                  value: PlayerSettingsStorage.autoFastestLine,
+                  onChanged: (value) {
+                    PlayerSettingsStorage.setAutoFastestLine(value);
+                    _refresh();
+                  },
+                ),
+                AppStyle.divider,
+                ListTile(
+                  title: const Text('手动测速'),
+                  subtitle: Text('当前共 ${controller.playUrls.length} 条线路'),
+                  onTap: () {
+                    controller.testLineSpeeds();
+                    SmartDialog.showToast('开始测速，可在线路列表中查看结果');
+                  },
                 ),
               ],
             ),

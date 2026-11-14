@@ -11,7 +11,7 @@
 ![Platform](https://img.shields.io/badge/Platform-Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white)
 ![Flutter](https://img.shields.io/badge/Flutter-3.22.3-02569B?style=for-the-badge&logo=flutter&logoColor=white)
 ![Dart](https://img.shields.io/badge/Dart-3.4.4-0175C2?style=for-the-badge&logo=dart&logoColor=white)
-![Version](https://img.shields.io/badge/Version-1.2.0-7F5AF0?style=for-the-badge&logo=git&logoColor=white)
+![Version](https://img.shields.io/badge/Version-1.3.0-7F5AF0?style=for-the-badge&logo=git&logoColor=white)
 
 ![Stars](https://img.shields.io/github/stars/nansheng1810/AniCh-Next?style=for-the-badge&logo=github&color=FFB86C)
 ![Downloads](https://img.shields.io/github/downloads/nansheng1810/AniCh-Next/total?style=for-the-badge&logo=github&color=FF5C8A)
@@ -131,6 +131,48 @@ GPU 硬件解码 + 4K 渲染，多套着色器引擎按需切换。
 
 </td>
 </tr>
+<tr>
+<td width="50%" valign="top">
+
+<b>📥 并发缓存队列</b><br/>
+1–6 并发下载、超出自动排队，支持整季批量缓存、自定义目录与完成通知。
+
+</td>
+<td width="50%" valign="top">
+
+<b>💬 本地弹幕</b><br/>
+JSON / XML 弹幕导入导出、多来源合并去重，按关键词搜索并跳转到对应时间。
+
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+
+<b>📡 多线路测速</b><br/>
+测试每条线路的延迟与下载速度，可自动切换到最快线路。
+
+</td>
+<td width="50%" valign="top">
+
+<b>🧠 智能片头</b><br/>
+学习你重复快进的落点，自动识别并跳过片头。
+
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+
+<b>📺 DLNA 投屏</b><br/>
+搜索局域网电视 / 盒子，把当前视频或本地缓存推送到大屏播放。
+
+</td>
+<td width="50%" valign="top">
+
+<b>🔔 系统通知</b><br/>
+缓存完成时通过桌面系统通知提醒，设置内可随时关闭。
+
+</td>
+</tr>
 </table>
 
 ---
@@ -160,7 +202,7 @@ GPU 硬件解码 + 4K 渲染，多套着色器引擎按需切换。
 
 [![Download Windows](https://img.shields.io/badge/Download_Windows-AniCh--Next-7F5AF0?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/nansheng1810/AniCh-Next/releases/latest)
 
-`AniCh-1.2.0-Setup.exe` · 约 24.5 MB · 支持简体中文 / English
+`AniCh-1.3.0-Setup.exe` · 约 24.7 MB · 支持简体中文 / English
 
 </div>
 
@@ -197,6 +239,19 @@ GPU 硬件解码 + 4K 渲染，多套着色器引擎按需切换。
 - 新增「隐藏侧栏」按钮，返回主界面按钮不再被视频层遮挡。
 - 删除图片页、我的页、番剧库、番剧详情页中重复的关闭按钮。
 - 修复从播放页返回番剧详情时出现灰块或空白的问题，并补充加载动画与错误兜底。
+
+</details>
+
+<details open>
+<summary><b>🚀 1.3.0 增强（Phase 2 & 3）</b></summary>
+
+- 离线缓存升级为并发队列：1–6 并发、超出自动排队；下载页支持批量选择删除、全部暂停 / 继续与清空已完成。
+- 新增缓存目录设置与缓存完成系统通知；番剧详情页支持「批量缓存」整季（自动跳过已缓存与 m3u8 线路）。
+- 新增本地弹幕：支持 JSON / XML（哔哩哔哩、ACFun 格式）导入并自动合并去重，可将当前全部来源弹幕导出为 JSON / XML。
+- 新增弹幕搜索：跨本站、哔哩哔哩、港澳台、腾讯视频与本地弹幕搜索关键词，点击结果跳转到对应时间。
+- 新增多线路测速：测试每条线路的延迟与下载速度，可手动或自动切换到最快线路。
+- 新增智能片头：记录用户重复快进的落点，连续两次接近时学习为片头结束点并自动跳过。
+- 新增 DLNA 投屏：SSDP 搜索局域网 MediaRenderer 设备，推送当前线路地址或本地缓存（内置局域网 HTTP 文件服务）。
 
 </details>
 
@@ -283,7 +338,7 @@ flutter build windows --release
 ISCC.exe installer\AniCh.iss
 ```
 
-输出 `dist\AniCh-1.2.0-Setup.exe`。如构建目录不在默认位置，可传入 `/DBuildDir="..."`。
+输出 `dist\AniCh-1.3.0-Setup.exe`。如构建目录不在默认位置，可传入 `/DBuildDir="..."`。
 
 ---
 
@@ -321,7 +376,7 @@ ISCC.exe installer\AniCh.iss
 ## 📄 说明
 
 > [!IMPORTANT]
-> 当前源码版本 `1.2.0+3`。
+> 当前源码版本 `1.3.0+4`。
 >
 > 本项目完全开源，源码可自由查看、修改与分发。
 >

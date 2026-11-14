@@ -1,6 +1,8 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:dio/dio.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
@@ -16,14 +18,19 @@ import 'package:xs/src/pages/download/download_manager.dart';
 import 'package:xs/src/pages/settings/storage/play_history_storage.dart';
 import 'package:xs/src/pages/settings/storage/playback_markers.dart';
 import 'package:xs/src/pages/settings/storage/player_storage.dart';
+import 'package:xs/src/pages/settings/storage/smart_intro_storage.dart';
 import 'package:xs/src/pages/settings/storage/watch_stats_storage.dart';
 import 'package:xs/src/utils/account.dart';
 import 'package:xs/src/utils/time.dart';
+import 'package:xs/src/widgets/danmaku_local/local_danmaku.dart';
+import 'package:xs/src/widgets/danmaku_local/view.dart';
 import 'package:xs/src/widgets/danmaku_settings/storage.dart';
 import 'package:xs/src/widgets/danmaku_shield/storage.dart';
 import 'package:xs/src/utils/app_style.dart';
 import 'package:xs/src/utils/color.dart';
 import 'package:xs/src/utils/log.dart';
+import 'package:xs/src/utils/line_speed_test.dart';
+import 'package:xs/src/utils/dlna.dart';
 import 'package:xs/src/utils/utils.dart';
 import 'package:xs/src/widgets/danmaku_settings/view.dart';
 import 'package:xs/src/widgets/danmaku_shield/view.dart';
@@ -55,6 +62,18 @@ class BangumiVodPageController extends PlayerController
 
   // 线路数据
   RxList<vod_item_> playUrls = RxList<vod_item_>();
+
+  // 线路测速结果
+  RxMap<int, LineSpeedResult> lineSpeedResults = <int, LineSpeedResult>{}.obs;
+  RxBool lineTesting = false.obs;
+
+  // DLNA 投屏
+  final DlnaService _dlnaService = DlnaService();
+  final LocalMediaServer _localMediaServer = LocalMediaServer();
+  final RxList<DlnaDevice> dlnaDevices = <DlnaDevice>[].obs;
+  final RxBool dlnaSearching = false.obs;
+  final RxString dlnaCastingTo = ''.obs;
+  DlnaDevice? _castingDevice;
 
   // 当前线路
   var currentLineIndex = -1;
@@ -95,6 +114,10 @@ class BangumiVodPageController extends PlayerController
   List<bilibili_danmaku_item_> bilibiliHmtDanmakuList = [];
   List<BarrageList> qqDanmakuList = [];
 
+  // 本地导入弹幕（增强）
+  List<LocalDanmakuItem> localDanmakuList = [];
+  RxBool localDanmakuState = LocalDanmakuStorage.enabled.obs;
+
   ScrollController playListScrollController = ScrollController();
   ScrollController playListScrollController2 = ScrollController();
 
@@ -107,6 +130,10 @@ class BangumiVodPageController extends PlayerController
   // 片头/片尾自动跳过只在本集触发一次，避免用户回看时被反复跳走
   bool _introSkipped = false;
   bool _outroHandled = false;
+
+  // 智能片头学习：记录播放位置跳变，连续两次快进到相近位置时生效
+  int _lastTickPosition = 0;
+  bool _smartSkipNotified = false;
 
   @override
   void onInit() {
@@ -185,6 +212,7 @@ class BangumiVodPageController extends PlayerController
         return;
       }
       _handleAutoSkip(currentinSeconds);
+      _learnSmartIntro(currentinSeconds);
       if ((inSeconds - currentinSeconds).abs() >= 5) {
         inSeconds = currentinSeconds;
         final date = DateTime.now().millisecondsSinceEpoch;
@@ -300,6 +328,21 @@ class BangumiVodPageController extends PlayerController
                   time: int.parse(e.timeOffset ?? '0') / 1000,
                   type: DanmakuUtils.getQQPosition(e.rickType ?? 1));
             }).toList();
+            try {
+              danmakuController!.addItems(currentDanmakuListQueue);
+            } catch (e) {
+              debugPrint(e.toString());
+            }
+          }
+          // 本地导入弹幕
+          if (localDanmakuList.isNotEmpty && localDanmakuState.value) {
+            final currentDanmakuList = localDanmakuList.where((e) {
+              return double.parse(e.time.toStringAsFixed(1)) ==
+                      currentPosition / 10 &&
+                  DanmakuShieldStorage.shieldCheck(e.text);
+            });
+            final currentDanmakuListQueue =
+                currentDanmakuList.map((e) => e.toDanmakuItem()).toList();
             try {
               danmakuController!.addItems(currentDanmakuListQueue);
             } catch (e) {
@@ -570,6 +613,9 @@ class BangumiVodPageController extends PlayerController
     // 切换剧集时尽量沿用当前线路
     final previousLine = currentLineIndex;
     playUrls.clear();
+    _speedTestSession += 1;
+    lineTesting(false);
+    lineSpeedResults.clear();
     currentLineInfo.value = '获取中...';
     currentLineIndex = -1;
     final response =
@@ -589,6 +635,9 @@ class BangumiVodPageController extends PlayerController
     currentLineIndex =
         previousLine >= 0 && previousLine < data.data.length ? previousLine : 0;
     setPlayer();
+    if (PlayerSettingsStorage.autoFastestLine && data.data.length > 1) {
+      testLineSpeeds(autoSwitch: true);
+    }
   }
 
   // 设置视频链接
@@ -605,6 +654,8 @@ class BangumiVodPageController extends PlayerController
       Map<String, String> headers = {};
       _introSkipped = false;
       _outroHandled = false;
+      _lastTickPosition = 0;
+      _smartSkipNotified = false;
       await player.open(
         Media(
           localPath != null ? Uri.file(localPath).toString() : networkUrl,
@@ -640,12 +691,17 @@ class BangumiVodPageController extends PlayerController
       return;
     }
     final markers = PlaybackMarkersStorage.read(id);
-    if (PlayerSettingsStorage.skipIntro &&
-        markers.hasIntro &&
-        !_introSkipped &&
-        position < markers.introEnd) {
+    // 手动标记优先；开启智能学习时使用学到的片头结束点
+    final learnedIntro = PlayerSettingsStorage.smartSkipIntro
+        ? SmartIntroStorage.learned(id)
+        : 0;
+    final introEnd = markers.hasIntro ? markers.introEnd : learnedIntro;
+    final introEnabled = markers.hasIntro
+        ? PlayerSettingsStorage.skipIntro
+        : PlayerSettingsStorage.smartSkipIntro && learnedIntro > 0;
+    if (introEnabled && !_introSkipped && position < introEnd) {
       _introSkipped = true;
-      player.seek(Duration(seconds: markers.introEnd));
+      player.seek(Duration(seconds: introEnd));
       SmartDialog.showToast('已跳过片头');
       return;
     }
@@ -667,6 +723,298 @@ class BangumiVodPageController extends PlayerController
         player.seek(player.state.duration);
       }
     }
+  }
+
+  // 智能学习：用户从片头区域快进时记录落点，重复落点视为片头结束
+  void _learnSmartIntro(int position) {
+    final previous = _lastTickPosition;
+    _lastTickPosition = position;
+    if (!PlayerSettingsStorage.smartSkipIntro) {
+      return;
+    }
+    if (previous <= 0 ||
+        position <= previous ||
+        position - previous < 8 ||
+        previous > 120 ||
+        position > 300) {
+      return;
+    }
+    final learned = SmartIntroStorage.addCandidate(id, position);
+    if (learned != null && !_smartSkipNotified) {
+      _smartSkipNotified = true;
+      SmartDialog.showToast(
+        '已学习片头结束点：${formatPlaybackTime(Duration(seconds: learned))}',
+      );
+    }
+  }
+
+  // ---------- 本地弹幕（增强） ----------
+
+  void loadLocalDanmaku() {
+    localDanmakuList = LocalDanmakuStorage.load(id, episode);
+  }
+
+  void setLocalDanmakuEnabled(bool value) {
+    localDanmakuState(value);
+    LocalDanmakuStorage.setEnabled(value);
+  }
+
+  Future<void> importLocalDanmakuFile() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['json', 'xml', 'txt'],
+      );
+      final path = result?.files.single.path;
+      if (path == null) {
+        return;
+      }
+      final content = await File(path).readAsString();
+      final items = DanmakuFileCodec.decode(content);
+      if (items.isEmpty) {
+        SmartDialog.showToast('未从文件中解析到弹幕');
+        return;
+      }
+      final added = LocalDanmakuStorage.merge(id, episode, items);
+      loadLocalDanmaku();
+      if (!localDanmakuState.value) {
+        setLocalDanmakuEnabled(true);
+      }
+      SmartDialog.showToast(
+        '已导入 $added 条，自动去重（文件共 ${items.length} 条）',
+      );
+    } catch (_) {
+      SmartDialog.showToast('弹幕导入失败，请检查文件格式');
+    }
+  }
+
+  /// 合并当前所有来源的弹幕，含本地导入。
+  List<LocalDanmakuItem> collectAllDanmaku() {
+    final map = <String, LocalDanmakuItem>{};
+    void add(LocalDanmakuItem item) {
+      if (item.text.isNotEmpty) {
+        map.putIfAbsent(item.key, () => item);
+      }
+    }
+
+    for (final e in danmakuList) {
+      add(LocalDanmakuItem(
+        time: e.time.toDouble(),
+        text: e.text,
+        type: DanmakuUtils.getPosition(e.type),
+        color: _hexToDecimal(e.color),
+      ));
+    }
+    for (final e in bilibiliDanmakuList) {
+      add(LocalDanmakuItem(
+        time: e.progress / 1000,
+        text: e.content,
+        type: DanmakuUtils.getBilibiliPosition(e.mode),
+        color: e.color,
+      ));
+    }
+    for (final e in bilibiliHmtDanmakuList) {
+      add(LocalDanmakuItem(
+        time: e.progress / 1000,
+        text: e.content,
+        type: DanmakuUtils.getBilibiliPosition(e.mode),
+        color: e.color,
+      ));
+    }
+    for (final e in qqDanmakuList) {
+      add(LocalDanmakuItem(
+        time: (int.tryParse(e.timeOffset ?? '0') ?? 0) / 1000,
+        text: e.content ?? '',
+        type: DanmakuUtils.getQQPosition(e.rickType ?? 1),
+      ));
+    }
+    for (final e in localDanmakuList) {
+      add(e);
+    }
+    return map.values.toList()..sort((a, b) => a.time.compareTo(b.time));
+  }
+
+  Future<void> exportDanmakuFile({required bool asXml}) async {
+    final items = collectAllDanmaku();
+    if (items.isEmpty) {
+      SmartDialog.showToast('当前没有可导出的弹幕');
+      return;
+    }
+    final safeTitle =
+        (data.title ?? 'danmaku').replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
+    try {
+      final path = await FilePicker.platform.saveFile(
+        dialogTitle: '导出弹幕',
+        fileName: '$safeTitle-第$episode集.${asXml ? 'xml' : 'json'}',
+        type: FileType.custom,
+        allowedExtensions: [asXml ? 'xml' : 'json'],
+      );
+      if (path == null) {
+        return;
+      }
+      final content = asXml
+          ? DanmakuFileCodec.encodeXml(items)
+          : DanmakuFileCodec.encodeJson(items);
+      await File(path).writeAsString(content);
+      SmartDialog.showToast('已导出 ${items.length} 条弹幕');
+    } catch (_) {
+      SmartDialog.showToast('弹幕导出失败');
+    }
+  }
+
+  void clearLocalDanmaku() {
+    LocalDanmakuStorage.clear(id, episode);
+    loadLocalDanmaku();
+    SmartDialog.showToast('已清空本集本地弹幕');
+  }
+
+  List<DanmakuSearchResult> searchDanmaku(String keyword) {
+    final kw = keyword.trim().toLowerCase();
+    if (kw.isEmpty) {
+      return [];
+    }
+    final results = <DanmakuSearchResult>[];
+    for (final e in danmakuList) {
+      if (e.text.toLowerCase().contains(kw)) {
+        results.add(DanmakuSearchResult(
+          time: e.time.toDouble(),
+          text: e.text,
+          source: '本站',
+        ));
+      }
+    }
+    for (final e in bilibiliDanmakuList) {
+      if (e.content.toLowerCase().contains(kw)) {
+        results.add(DanmakuSearchResult(
+          time: e.progress / 1000,
+          text: e.content,
+          source: '哔哩哔哩',
+        ));
+      }
+    }
+    for (final e in bilibiliHmtDanmakuList) {
+      if (e.content.toLowerCase().contains(kw)) {
+        results.add(DanmakuSearchResult(
+          time: e.progress / 1000,
+          text: e.content,
+          source: '哔哩哔哩港澳台',
+        ));
+      }
+    }
+    for (final e in qqDanmakuList) {
+      final text = e.content ?? '';
+      if (text.toLowerCase().contains(kw)) {
+        results.add(DanmakuSearchResult(
+          time: (int.tryParse(e.timeOffset ?? '0') ?? 0) / 1000,
+          text: text,
+          source: '腾讯视频',
+        ));
+      }
+    }
+    for (final e in localDanmakuList) {
+      if (e.text.toLowerCase().contains(kw)) {
+        results.add(DanmakuSearchResult(
+          time: e.time,
+          text: e.text,
+          source: '本地',
+        ));
+      }
+    }
+    results.sort((a, b) => a.time.compareTo(b.time));
+    return results.take(300).toList();
+  }
+
+  void showDanmakuSearch() {
+    final keywordController = TextEditingController();
+    Utils.showBottomSheet(
+      title: '弹幕搜索',
+      scrollControlDisabledMaxHeightRatio: 0.85,
+      child: StatefulBuilder(
+        builder: (context, setState) {
+          final results = searchDanmaku(keywordController.text);
+          return Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: TextField(
+                  controller: keywordController,
+                  autofocus: true,
+                  onChanged: (_) => setState(() {}),
+                  decoration: InputDecoration(
+                    isDense: true,
+                    border: const OutlineInputBorder(),
+                    hintText: '输入关键词搜索当前弹幕',
+                    prefixIcon: const Icon(Icons.search),
+                    suffixIcon: keywordController.text.isEmpty
+                        ? null
+                        : IconButton(
+                            onPressed: () {
+                              keywordController.clear();
+                              setState(() {});
+                            },
+                            icon: const Icon(Icons.clear),
+                          ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Expanded(
+                child: results.isEmpty
+                    ? Center(
+                        child: Text(
+                          keywordController.text.isEmpty
+                              ? '输入关键词开始搜索'
+                              : '没有匹配的弹幕',
+                          style:
+                              const TextStyle(color: Colors.grey, fontSize: 13),
+                        ),
+                      )
+                    : ListView.builder(
+                        itemCount: results.length,
+                        itemBuilder: (context, index) {
+                          final item = results[index];
+                          return ListTile(
+                            dense: true,
+                            leading: Text(
+                              formatPlaybackTime(item.position),
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                            title: Text(
+                              item.text,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            subtitle: Text(
+                              item.source,
+                              style: const TextStyle(fontSize: 11),
+                            ),
+                            onTap: () {
+                              player.seek(item.position);
+                              Get.back();
+                            },
+                          );
+                        },
+                      ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  int _hexToDecimal(String? value) {
+    if (value == null) {
+      return 0xFFFFFF;
+    }
+    var text = value.trim();
+    if (text.startsWith('#')) {
+      text = text.substring(1);
+    }
+    if (text.length == 8) {
+      text = text.substring(2);
+    }
+    return int.tryParse(text, radix: 16) ?? 0xFFFFFF;
   }
 
   // 本集播放结束：记录完成集数，按设置自动连播或暂停
@@ -760,10 +1108,315 @@ class BangumiVodPageController extends PlayerController
     SmartDialog.showToast(added ? '已加入离线缓存' : '该剧集已存在缓存任务');
   }
 
+  // 批量缓存本番剧所有有资源的剧集
+  Future<void> batchDownload() async {
+    if (episodes.isEmpty) {
+      SmartDialog.showToast('剧集信息尚未加载完成');
+      return;
+    }
+    final manager = Get.isRegistered<DownloadManager>()
+        ? DownloadManager.instance
+        : Get.put(DownloadManager());
+    final pending = episodes
+        .where((e) => e.status)
+        .where((e) =>
+            !manager.tasks.any((t) => t.bangumiId == id && t.episode == e.sort))
+        .toList();
+    if (pending.isEmpty) {
+      SmartDialog.showToast('全部剧集已在缓存队列中');
+      return;
+    }
+    final confirm = await Utils.showAlertDialog(
+      '将为 ${pending.length} 集加入离线缓存，自动跳过无资源与 m3u8 线路，是否继续？',
+      title: '批量缓存',
+      confirm: '开始',
+    );
+    if (!confirm) {
+      return;
+    }
+    var added = 0;
+    var skipped = 0;
+    SmartDialog.showLoading(msg: '正在添加缓存任务');
+    for (final item in pending) {
+      try {
+        final response = await BangumiApi.getBangumiEpisodeVod(
+          id: id,
+          episode: item.sort,
+        );
+        if (response.statusCode != 200) {
+          skipped += 1;
+          continue;
+        }
+        final vodData = vod_.fromBuffer(response.data.cast<int>());
+        final index = vodData.data.indexWhere((e) {
+          final url = urlDecode(e.url);
+          return url.isNotEmpty && !url.contains('.m3u8');
+        });
+        if (index < 0) {
+          skipped += 1;
+          continue;
+        }
+        final ok = await manager.addTask(
+          bangumiId: id,
+          episode: item.sort,
+          title: data.title ?? '',
+          episodeTitle: item.title,
+          image: item.image,
+          lineIndex: index,
+          url: urlDecode(vodData.data[index].url),
+        );
+        if (ok) {
+          added += 1;
+        } else {
+          skipped += 1;
+        }
+      } catch (_) {
+        skipped += 1;
+      }
+    }
+    SmartDialog.dismiss(status: SmartStatus.loading);
+    SmartDialog.showToast('已加入 $added 集缓存，跳过 $skipped 集');
+  }
+
   // 切换线路
   void changePlayLine(int index) {
     currentLineIndex = index;
     setPlayer();
+  }
+
+  // ---------- 多线路测速（增强） ----------
+
+  int _speedTestSession = 0;
+
+  Future<void> testLineSpeeds({bool autoSwitch = false}) async {
+    if (playUrls.isEmpty || lineTesting.value) {
+      return;
+    }
+    final session = ++_speedTestSession;
+    lineTesting(true);
+    lineSpeedResults.clear();
+    final results = await Future.wait(
+      playUrls.asMap().entries.map((entry) async {
+        final result = await LineSpeedTester.test(urlDecode(entry.value.url));
+        return MapEntry(entry.key, result);
+      }),
+    );
+    if (session != _speedTestSession) {
+      return;
+    }
+    for (final entry in results) {
+      lineSpeedResults[entry.key] = entry.value;
+    }
+    lineTesting(false);
+    if (autoSwitch) {
+      final best = fastestLineIndex();
+      if (best != null && best != currentLineIndex) {
+        SmartDialog.showToast('已自动切换到最快线路${best + 1}');
+        changePlayLine(best);
+        return;
+      }
+    }
+    if (results.every((e) => e.value.error)) {
+      SmartDialog.showToast('测速失败，请检查网络');
+    }
+  }
+
+  int? fastestLineIndex() {
+    int? best;
+    double bestScore = double.negativeInfinity;
+    for (final entry in lineSpeedResults.entries) {
+      if (entry.value.error) {
+        continue;
+      }
+      final score =
+          entry.value.speedKbps * 1000 - entry.value.latencyMs.toDouble();
+      if (score > bestScore) {
+        bestScore = score;
+        best = entry.key;
+      }
+    }
+    return best;
+  }
+
+  String lineSpeedText(int index) {
+    final result = lineSpeedResults[index];
+    if (result != null) {
+      return result.text;
+    }
+    return lineTesting.value ? '测速中…' : '';
+  }
+
+  // ---------- DLNA 投屏（增强） ----------
+
+  Future<void> searchDlnaDevices() async {
+    if (dlnaSearching.value) {
+      return;
+    }
+    dlnaSearching(true);
+    dlnaDevices.clear();
+    final devices = await _dlnaService.discover();
+    dlnaDevices.assignAll(devices);
+    dlnaSearching(false);
+    if (devices.isEmpty) {
+      SmartDialog.showToast('未发现 DLNA 设备，请检查电视与网络');
+    }
+  }
+
+  void showDlnaSheet() {
+    final manager = Get.isRegistered<DownloadManager>()
+        ? DownloadManager.instance
+        : Get.put(DownloadManager());
+    final localPath = manager.localPath(id, episode, currentLineIndex);
+    Utils.showBottomSheet(
+      title: '投屏到电视（DLNA）',
+      scrollControlDisabledMaxHeightRatio: 0.85,
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    localPath != null ? '使用本地缓存，通过局域网推送到电视' : '使用当前线路地址推送到电视',
+                    style: const TextStyle(color: Colors.grey, fontSize: 12),
+                  ),
+                ),
+                Obx(
+                  () => TextButton.icon(
+                    onPressed: dlnaSearching.value ? null : searchDlnaDevices,
+                    icon: const Icon(Icons.refresh, size: 16),
+                    label: Text(dlnaSearching.value ? '搜索中…' : '搜索设备'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: Obx(
+              () {
+                if (dlnaSearching.value && dlnaDevices.isEmpty) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (dlnaDevices.isEmpty) {
+                  return const Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(24),
+                      child: Text(
+                        '未发现 DLNA 设备\n请确认电视与电脑连接同一局域网，并开启投屏功能',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.grey, fontSize: 13),
+                      ),
+                    ),
+                  );
+                }
+                return ListView.builder(
+                  itemCount: dlnaDevices.length,
+                  itemBuilder: (context, index) {
+                    final device = dlnaDevices[index];
+                    return ListTile(
+                      leading: const Icon(Icons.tv),
+                      title: Text(device.name),
+                      subtitle: Text(device.host),
+                      trailing: dlnaCastingTo.value == device.name
+                          ? const Text(
+                              '投屏中',
+                              style: TextStyle(color: Colors.green),
+                            )
+                          : const Icon(Icons.chevron_right),
+                      onTap: () => castToDevice(device, localPath),
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+          Obx(
+            () => dlnaCastingTo.value.isEmpty
+                ? const SizedBox.shrink()
+                : Padding(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            '正在投屏：${dlnaCastingTo.value}',
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: pauseCasting,
+                          child: const Text('暂停'),
+                        ),
+                        TextButton(
+                          onPressed: stopCasting,
+                          child: const Text('停止投屏'),
+                        ),
+                      ],
+                    ),
+                  ),
+          ),
+        ],
+      ),
+    );
+    if (dlnaDevices.isEmpty) {
+      searchDlnaDevices();
+    }
+  }
+
+  Future<void> castToDevice(DlnaDevice device, String? localPath) async {
+    try {
+      final url = localPath != null
+          ? await _localMediaServer.serve(localPath)
+          : (playUrls.isNotEmpty && currentLineIndex >= 0
+              ? urlDecode(playUrls[currentLineIndex].url)
+              : '');
+      if (url.isEmpty) {
+        SmartDialog.showToast('当前没有可投屏的播放地址');
+        return;
+      }
+      await _dlnaService.setAvTransportUri(
+        device,
+        url,
+        title: '${data.title ?? 'AniCh'} 第$episode集',
+      );
+      await _dlnaService.play(device);
+      _castingDevice = device;
+      dlnaCastingTo(device.name);
+      SmartDialog.showToast('已投屏到 ${device.name}');
+    } catch (_) {
+      SmartDialog.showToast('投屏失败，请确认设备支持 DLNA');
+    }
+  }
+
+  Future<void> pauseCasting() async {
+    final device = _castingDevice;
+    if (device == null) {
+      return;
+    }
+    try {
+      await _dlnaService.pause(device);
+      SmartDialog.showToast('已在电视上暂停');
+    } catch (_) {
+      SmartDialog.showToast('暂停失败');
+    }
+  }
+
+  Future<void> stopCasting() async {
+    final device = _castingDevice;
+    if (device == null) {
+      return;
+    }
+    try {
+      await _dlnaService.stop(device);
+    } catch (_) {
+      // 设备已断开时忽略
+    }
+    _castingDevice = null;
+    dlnaCastingTo('');
+    await _localMediaServer.stop();
+    SmartDialog.showToast('已停止投屏');
   }
 
   // 上一集，已经是第一集时返回 null
@@ -825,6 +1478,7 @@ class BangumiVodPageController extends PlayerController
     bilibiliDanmakuList.clear();
     bilibiliHmtDanmakuList.clear();
     qqDanmakuList.clear();
+    loadLocalDanmaku();
     getDanmaku();
     getBilibiliDanmaku();
     getBilibiliHmtDanmaku();
@@ -862,6 +1516,8 @@ class BangumiVodPageController extends PlayerController
               DanmakuShieldView.showDanmakuShieldBottomSheet();
             },
           ),
+          const SizedBox(height: 12),
+          LocalDanmakuSettings(controller: this),
         ],
       ),
     );
@@ -1135,25 +1791,61 @@ class BangumiVodPageController extends PlayerController
   void showPlayUrlsSheet() {
     Utils.showBottomSheet(
       title: '切换线路',
-      child: ListView.builder(
-        itemCount: playUrls.length,
-        itemBuilder: (_, i) {
-          return RadioListTile(
-            value: i,
-            groupValue: currentLineIndex,
-            title: Text('线路${i + 1}'),
-            subtitle: Text(urlDecode(playUrls[i].url)),
-            secondary: Text(
-              playUrls[i].caption,
+      scrollControlDisabledMaxHeightRatio: 0.8,
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: Row(
+              children: [
+                Obx(
+                  () => TextButton.icon(
+                    onPressed:
+                        lineTesting.value ? null : () => testLineSpeeds(),
+                    icon: const Icon(Icons.speed, size: 16),
+                    label: Text(lineTesting.value ? '测速中…' : '线路测速'),
+                  ),
+                ),
+                TextButton.icon(
+                  onPressed: () => testLineSpeeds(autoSwitch: true),
+                  icon: const Icon(Icons.auto_fix_high, size: 16),
+                  label: const Text('自动选最快'),
+                ),
+                const Spacer(),
+                if (playUrls.isNotEmpty)
+                  Text(
+                    '共 ${playUrls.length} 条',
+                    style: const TextStyle(color: Colors.grey, fontSize: 12),
+                  ),
+              ],
             ),
-            onChanged: (e) {
-              Get.back();
-              //currentLineIndex = i;
-              //setPlayer();
-              changePlayLine(i);
-            },
-          );
-        },
+          ),
+          Expanded(
+            child: Obx(
+              () => ListView.builder(
+                itemCount: playUrls.length,
+                itemBuilder: (_, i) {
+                  final speed = lineSpeedText(i);
+                  return RadioListTile(
+                    value: i,
+                    groupValue: currentLineIndex,
+                    title: Text('线路${i + 1}'),
+                    subtitle: Text(
+                      speed.isEmpty
+                          ? urlDecode(playUrls[i].url)
+                          : '${urlDecode(playUrls[i].url)}\n$speed',
+                    ),
+                    secondary: Text(playUrls[i].caption),
+                    onChanged: (e) {
+                      Get.back();
+                      changePlayLine(i);
+                    },
+                  );
+                },
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1206,6 +1898,9 @@ class BangumiVodPageController extends PlayerController
     animationController.dispose();
     playListScrollController.dispose();
     playListScrollController2.dispose();
+    // 释放 DLNA 本地投屏服务
+    _localMediaServer.stop();
+    _dlnaService.dispose();
     super.onClose();
   }
 }

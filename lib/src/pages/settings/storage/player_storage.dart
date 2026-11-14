@@ -115,6 +115,24 @@ class PlayerSettingsStorage {
     box.write('playerSkipOutro', value);
   }
 
+  // 智能学习片头：根据用户重复快进的落点自动确定片头结束位置
+  static bool get smartSkipIntro {
+    return box.read('playerSmartSkipIntro') as bool? ?? false;
+  }
+
+  static void setSmartSkipIntro(bool value) {
+    box.write('playerSmartSkipIntro', value);
+  }
+
+  // 多线路自动测速并切换到最快线路
+  static bool get autoFastestLine {
+    return box.read('playerAutoFastestLine') as bool? ?? false;
+  }
+
+  static void setAutoFastestLine(bool value) {
+    box.write('playerAutoFastestLine', value);
+  }
+
   // 外挂字幕样式
   static double get subtitleFontSize {
     final value =

@@ -69,13 +69,19 @@ class BangumiVodIndexView extends StatelessWidget {
                         ),
                         Container(
                           padding: const EdgeInsets.only(top: 5, bottom: 5),
-                          child: const Row(
+                          child: Row(
                             children: [
-                              Text(
+                              const Text(
                                 '选集',
                                 style: TextStyle(
                                     fontSize: 12, fontWeight: FontWeight.bold),
-                              )
+                              ),
+                              const Spacer(),
+                              TextButton.icon(
+                                onPressed: controller.batchDownload,
+                                icon: const Icon(Icons.download, size: 16),
+                                label: const Text('批量缓存'),
+                              ),
                             ],
                           ),
                         ),

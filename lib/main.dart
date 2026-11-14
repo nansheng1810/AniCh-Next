@@ -24,6 +24,7 @@ import 'package:xs/src/router.dart';
 import 'package:xs/src/utils/desktop_lifecycle.dart';
 import 'package:xs/src/utils/listen_fourth_button.dart';
 import 'package:xs/src/utils/log.dart';
+import 'package:xs/src/utils/notification.dart';
 import 'package:xs/src/utils/app_route_observer.dart';
 import 'package:xs/src/utils/utils.dart';
 import 'package:xs/src/widgets/app_loadding_widget.dart';
@@ -75,6 +76,8 @@ void main() async {
   DanmakuSettingsStorage.init();
   // 初始化弹幕屏蔽词
   DanmakuShieldStorage.init();
+  // 桌面端系统通知
+  await NotificationService.init();
   // 初始化离线缓存
   await Get.put(DownloadManager()).init();
   runApp(const MyApp());

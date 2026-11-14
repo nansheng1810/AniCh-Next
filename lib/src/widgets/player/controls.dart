@@ -10,6 +10,7 @@ import 'package:xs/src/pages/bangumi_vod/controller.dart';
 import 'package:xs/src/utils/app_style.dart';
 import 'package:xs/src/utils/color.dart';
 import 'package:xs/src/utils/utils.dart';
+import 'package:xs/src/widgets/danmaku_local/view.dart';
 import 'package:xs/src/widgets/danmaku_settings/view.dart';
 import 'package:xs/src/widgets/drag_to_move_bar.dart';
 import 'package:xs/src/widgets/ns_danmaku/danmaku_view.dart';
@@ -1245,6 +1246,8 @@ void showDanmakuSettings(BangumiVodPageController controller) {
           playerController: controller,
           danmakuController: controller.danmakuController,
         ),
+        const SizedBox(height: 12),
+        LocalDanmakuSettings(controller: controller),
       ],
     ),
   );
