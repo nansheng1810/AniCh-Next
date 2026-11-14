@@ -19,6 +19,7 @@ import 'package:screen_brightness/screen_brightness.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:xs/src/pages/settings/storage/player_storage.dart';
+import 'package:xs/src/pages/settings/storage/watch_stats_storage.dart';
 import 'package:xs/src/utils/app_style.dart';
 import 'package:xs/src/utils/custom_throttle.dart';
 import 'package:xs/src/utils/log.dart';
@@ -28,6 +29,12 @@ import 'package:xs/src/widgets/ns_danmaku/danmaku_controller.dart';
 import 'package:xs/src/widgets/ns_danmaku/models/danmaku_item.dart';
 import 'package:xs/src/widgets/ns_danmaku/models/danmaku_option.dart';
 import 'package:xs/src/widgets/player/upscaler.dart';
+
+/// 播放时间格式化：去掉小时前的 0:，例如 01:23:45 → 1:23:45、00:12:34 → 12:34。
+String formatPlaybackTime(Duration duration) {
+  final text = duration.toString().split('.').first;
+  return text.startsWith('0:') ? text.substring(2) : text;
+}
 
 mixin PlayerMixin {
   GlobalKey<VideoState> globalPlayerKey = GlobalKey<VideoState>();
@@ -136,6 +143,29 @@ mixin PlayerStateMixin on PlayerMixin {
   // 是否显示腾讯视频弹幕
   RxBool qqDanmakuState = true.obs;
 
+  // 播放行为
+  RxBool autoFullscreen = PlayerSettingsStorage.autoFullscreen.obs;
+  RxBool autoPlayNext = PlayerSettingsStorage.autoPlayNext.obs;
+  RxBool longPressSpeedEnabled = PlayerSettingsStorage.longPressSpeed.obs;
+  RxDouble longPressSpeedValue = PlayerSettingsStorage.longPressSpeedValue.obs;
+
+  // 外挂字幕
+  RxString subtitlePath = ''.obs;
+  RxDouble subtitleFontSize = PlayerSettingsStorage.subtitleFontSize.obs;
+  RxDouble subtitleOutline = PlayerSettingsStorage.subtitleOutline.obs;
+  RxDouble subtitleBottomPadding =
+      PlayerSettingsStorage.subtitleBottomPadding.obs;
+  RxBool subtitleBold = PlayerSettingsStorage.subtitleBold.obs;
+  RxDouble subtitleDelay = PlayerSettingsStorage.subtitleDelay.obs;
+
+  // 睡眠定时（剩余秒数，0 表示关闭）
+  RxInt sleepRemaining = 0.obs;
+  RxBool sleepAtEpisodeEnd = false.obs;
+  Timer? _sleepTimer;
+
+  // 长按倍速恢复用的原始倍速
+  double? _speedBeforeBoost;
+
   // 设置倍速
   Future setPlaybackSpeed(double rate) async {
     try {
@@ -157,6 +187,253 @@ mixin PlayerStateMixin on PlayerMixin {
   // 拖动结束后再落盘，避免滑块拖动过程频繁写入
   void persistVolume() {
     PlayerSettingsStorage.setVolume(playerVolume.value);
+  }
+
+  // 播放行为设置
+  void setAutoFullscreen(bool value) {
+    autoFullscreen(value);
+    PlayerSettingsStorage.setAutoFullscreen(value);
+  }
+
+  void setAutoPlayNext(bool value) {
+    autoPlayNext(value);
+    PlayerSettingsStorage.setAutoPlayNext(value);
+  }
+
+  void setLongPressSpeedEnabled(bool value) {
+    longPressSpeedEnabled(value);
+    PlayerSettingsStorage.setLongPressSpeed(value);
+  }
+
+  void setLongPressSpeedValue(double value) {
+    final speed = value.clamp(1.5, 4.0);
+    longPressSpeedValue(speed);
+    PlayerSettingsStorage.setLongPressSpeedValue(speed);
+  }
+
+  // 长按临时倍速：只在按住期间生效，不覆盖用户默认倍速
+  Future<void> startLongPressBoost() async {
+    if (!longPressSpeedEnabled.value || _speedBeforeBoost != null) {
+      return;
+    }
+    _speedBeforeBoost = playerSpeed.value;
+    try {
+      await player.setRate(longPressSpeedValue.value);
+    } catch (e) {
+      debugPrint(e.toString());
+    }
+    _showPlayerTip('${longPressSpeedValue.value}X 倍速');
+  }
+
+  Future<void> stopLongPressBoost() async {
+    final speed = _speedBeforeBoost;
+    if (speed == null) {
+      return;
+    }
+    _speedBeforeBoost = null;
+    try {
+      await player.setRate(speed);
+    } catch (e) {
+      debugPrint(e.toString());
+    }
+    _showPlayerTip('${speed}X 倍速');
+  }
+
+  // 外挂字幕：选择本地字幕文件
+  Future<void> pickSubtitleFile() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['srt', 'ass', 'ssa', 'vtt', 'sub'],
+      );
+      final path = result?.files.single.path;
+      if (path == null) {
+        return;
+      }
+      subtitlePath(path);
+      await applySubtitleTrack();
+      SmartDialog.showToast('已加载字幕');
+    } catch (e) {
+      SmartDialog.showToast('字幕加载失败');
+    }
+  }
+
+  // 重新挂载当前外挂字幕（换集/换线路后调用）
+  Future<void> applySubtitleTrack() async {
+    final path = subtitlePath.value;
+    if (path.isEmpty) {
+      return;
+    }
+    try {
+      await player.setSubtitleTrack(
+        SubtitleTrack.uri(
+          Uri.file(path).toString(),
+          title: path.split(RegExp(r'[\\/]')).last,
+        ),
+      );
+      await applySubtitleDelay();
+    } catch (e) {
+      SmartDialog.showToast('字幕加载失败：$e');
+    }
+  }
+
+  Future<void> clearSubtitle() async {
+    subtitlePath('');
+    try {
+      await player.setSubtitleTrack(SubtitleTrack.no());
+    } catch (e) {
+      debugPrint(e.toString());
+    }
+  }
+
+  // 字幕样式：由 Flutter 字幕层渲染，实时生效
+  SubtitleViewConfiguration buildSubtitleViewConfiguration() {
+    final outline = subtitleOutline.value;
+    final shadows = outline <= 0
+        ? null
+        : <Shadow>[
+            Shadow(
+                color: Colors.black,
+                offset: Offset(-outline, -outline),
+                blurRadius: outline),
+            Shadow(
+                color: Colors.black,
+                offset: Offset(outline, -outline),
+                blurRadius: outline),
+            Shadow(
+                color: Colors.black,
+                offset: Offset(-outline, outline),
+                blurRadius: outline),
+            Shadow(
+                color: Colors.black,
+                offset: Offset(outline, outline),
+                blurRadius: outline),
+          ];
+    return SubtitleViewConfiguration(
+      style: TextStyle(
+        height: 1.4,
+        fontSize: subtitleFontSize.value,
+        color: Colors.white,
+        fontWeight: subtitleBold.value ? FontWeight.bold : FontWeight.normal,
+        shadows: shadows,
+      ),
+      padding: EdgeInsets.fromLTRB(16, 0, 16, subtitleBottomPadding.value),
+    );
+  }
+
+  void setSubtitleFontSize(double value) {
+    final size = value.clamp(16.0, 64.0);
+    subtitleFontSize(size);
+    PlayerSettingsStorage.setSubtitleFontSize(size);
+  }
+
+  void setSubtitleOutline(double value) {
+    final outline = value.clamp(0.0, 4.0);
+    subtitleOutline(outline);
+    PlayerSettingsStorage.setSubtitleOutline(outline);
+  }
+
+  void setSubtitleBottomPadding(double value) {
+    final padding = value.clamp(0.0, 160.0);
+    subtitleBottomPadding(padding);
+    PlayerSettingsStorage.setSubtitleBottomPadding(padding);
+  }
+
+  void setSubtitleBold(bool value) {
+    subtitleBold(value);
+    PlayerSettingsStorage.setSubtitleBold(value);
+  }
+
+  Future<void> applySubtitleDelay() async {
+    final platform = player.platform;
+    if (platform is NativePlayer) {
+      try {
+        await platform.setProperty(
+          'sub-delay',
+          subtitleDelay.value.toStringAsFixed(2),
+        );
+      } catch (e) {
+        debugPrint(e.toString());
+      }
+    }
+  }
+
+  void setSubtitleDelay(double value) {
+    final delay = value.clamp(-10.0, 10.0);
+    subtitleDelay(delay);
+    PlayerSettingsStorage.setSubtitleDelay(delay);
+    applySubtitleDelay();
+  }
+
+  // 睡眠定时
+  void setSleepTimer(Duration? duration) {
+    _sleepTimer?.cancel();
+    _sleepTimer = null;
+    sleepAtEpisodeEnd(false);
+    if (duration == null) {
+      sleepRemaining(0);
+      return;
+    }
+    sleepRemaining(duration.inSeconds);
+    _sleepTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (sleepRemaining.value <= 1) {
+        cancelSleepTimer();
+        if (player.state.playing) {
+          player.pause();
+        }
+        SmartDialog.showToast('睡眠定时结束，已暂停播放');
+        showControls();
+      } else {
+        sleepRemaining.value--;
+      }
+    });
+    SmartDialog.showToast('将在${_sleepLabel(duration.inSeconds)}后暂停');
+  }
+
+  // 本集播完后暂停
+  void setSleepAtEpisodeEnd(bool value) {
+    _sleepTimer?.cancel();
+    _sleepTimer = null;
+    sleepRemaining(0);
+    sleepAtEpisodeEnd(value);
+    if (value) {
+      SmartDialog.showToast('本集播放结束后自动暂停');
+    }
+  }
+
+  void cancelSleepTimer() {
+    _sleepTimer?.cancel();
+    _sleepTimer = null;
+    sleepRemaining(0);
+    sleepAtEpisodeEnd(false);
+  }
+
+  String get sleepTimerLabel {
+    if (sleepAtEpisodeEnd.value) {
+      return '本集结束后暂停';
+    }
+    if (sleepRemaining.value <= 0) {
+      return '关闭';
+    }
+    return _sleepLabel(sleepRemaining.value);
+  }
+
+  String _sleepLabel(int seconds) {
+    final minutes = seconds ~/ 60;
+    final rest = seconds % 60;
+    if (minutes <= 0) {
+      return '$rest秒';
+    }
+    return rest == 0 ? '$minutes分钟' : '$minutes分$rest秒';
+  }
+
+  void _showPlayerTip(String text) {
+    gestureTipText.value = text;
+    showGestureTip.value = true;
+    hideSeekTipTimer?.cancel();
+    hideSeekTipTimer = Timer(const Duration(milliseconds: 900), () {
+      showGestureTip.value = false;
+    });
   }
 
   // 获取视频分辨率文本
@@ -281,8 +558,8 @@ mixin PlayerStateMixin on PlayerMixin {
       return;
     }
     try {
-      final engineActive = upscaler.value.available &&
-          upscaler.value != UpscalerEngine.none;
+      final engineActive =
+          upscaler.value.available && upscaler.value != UpscalerEngine.none;
       final width = player.state.width;
       final height = player.state.height;
       if (render4K.value) {
@@ -958,6 +1235,19 @@ class PlayerController extends GetxController
         PlayerSystemMixin,
         PlayerGestureControlMixin,
         WindowListener {
+  // A-B 循环
+  RxInt abStart = (-1).obs;
+  RxInt abEnd = (-1).obs;
+  bool _abSeeking = false;
+
+  // 观看时长统计
+  Duration? _lastWatchPosition;
+  int _watchMsBuffer = 0;
+  StreamSubscription<Duration>? _positionSubscription;
+
+  // 自动全屏只在本页首次进入时触发
+  bool _autoFullscreenApplied = false;
+
   @override
   void onInit() {
     initSystem();
@@ -982,6 +1272,102 @@ class PlayerController extends GetxController
     if (fullScreenState.value && !smallWindowState.value) {
       exitFull();
     }
+  }
+
+  /// 进入播放页后按设置自动全屏（仅首次）。
+  Future<void> maybeEnterAutoFullscreen() async {
+    if (_autoFullscreenApplied ||
+        !autoFullscreen.value ||
+        fullScreenState.value) {
+      return;
+    }
+    _autoFullscreenApplied = true;
+    await Future.delayed(const Duration(milliseconds: 300));
+    if (!_closed) {
+      await enterFullScreen();
+    }
+  }
+
+  // A-B 循环
+  void setABStart() {
+    final position = player.state.position.inSeconds;
+    abStart(position);
+    if (abEnd.value > 0 && abEnd.value <= position) {
+      abEnd(-1);
+    }
+    _showPlayerTip('A 点：${formatPlaybackTime(Duration(seconds: position))}');
+  }
+
+  void setABEnd() {
+    final position = player.state.position.inSeconds;
+    if (abStart.value < 0 || position <= abStart.value) {
+      _showPlayerTip('请先设置 A 点，并在 A 点之后设置 B 点');
+      return;
+    }
+    abEnd(position);
+    _showPlayerTip('B 点：${formatPlaybackTime(Duration(seconds: position))}');
+  }
+
+  void clearABLoop() {
+    abStart(-1);
+    abEnd(-1);
+    _showPlayerTip('已取消 A-B 循环');
+  }
+
+  /// 播放器日志面板：查看、复制、清空最近的播放日志。
+  void showPlayerLogs() {
+    Utils.showBottomSheet(
+      title: '播放器日志',
+      scrollControlDisabledMaxHeightRatio: 0.8,
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              TextButton.icon(
+                onPressed: () {
+                  Clipboard.setData(
+                    ClipboardData(text: Log.recentLogs.join('\n')),
+                  );
+                  SmartDialog.showToast('已复制日志');
+                },
+                icon: const Icon(Icons.copy, size: 18),
+                label: const Text('复制'),
+              ),
+              TextButton.icon(
+                onPressed: Log.clearRecentLogs,
+                icon: const Icon(Icons.delete_outline, size: 18),
+                label: const Text('清空'),
+              ),
+            ],
+          ),
+          Expanded(
+            child: Obx(() {
+              if (Log.recentLogs.isEmpty) {
+                return const Center(child: Text('暂无日志'));
+              }
+              return ListView.builder(
+                padding: AppStyle.edgeInsetsV12,
+                itemCount: Log.recentLogs.length,
+                itemBuilder: (_, index) {
+                  return Padding(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
+                    child: SelectableText(
+                      Log.recentLogs[index],
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontFamily: 'monospace',
+                      ),
+                    ),
+                  );
+                },
+              );
+            }),
+          ),
+        ],
+      ),
+    );
   }
 
   /// 播放器快捷键：空格暂停/继续，左右方向键快进/快退，上下方向键调音量。
@@ -1045,8 +1431,7 @@ class PlayerController extends GetxController
   }
 
   String _formatDuration(Duration duration) {
-    final text = duration.toString().split('.').first;
-    return text.startsWith('0:') ? text.substring(2) : text;
+    return formatPlaybackTime(duration);
   }
 
   void _showShortcutTip(String text) {
@@ -1084,6 +1469,7 @@ class PlayerController extends GetxController
     _logSubscription = player.stream.log.listen((event) {
       Log.d('播放器日志：$event');
     });
+    _positionSubscription = player.stream.position.listen(_onPositionTrack);
     _widthSubscription = player.stream.width.listen((event) {
       Log.d(
           'width:$event  W:${(player.state.width)}  H:${(player.state.height)}');
@@ -1104,7 +1490,36 @@ class PlayerController extends GetxController
     _widthSubscription?.cancel();
     _heightSubscription?.cancel();
     _logSubscription?.cancel();
+    _positionSubscription?.cancel();
     _pipSubscription?.cancel();
+  }
+
+  /// 统一处理进度回调：A-B 循环与观看时长统计。
+  void _onPositionTrack(Duration position) {
+    if (abStart.value >= 0 &&
+        abEnd.value > abStart.value &&
+        position.inSeconds >= abEnd.value &&
+        !_abSeeking) {
+      _abSeeking = true;
+      player.seek(Duration(seconds: abStart.value)).whenComplete(() {
+        _abSeeking = false;
+      });
+    }
+
+    final last = _lastWatchPosition;
+    _lastWatchPosition = position;
+    if (!player.state.playing || last == null) {
+      return;
+    }
+    final delta = position.inMilliseconds - last.inMilliseconds;
+    // 只累计正常播放增量，跳转造成的跳变不计入
+    if (delta > 0 && delta <= 2000) {
+      _watchMsBuffer += delta;
+      if (_watchMsBuffer >= 1000) {
+        WatchStatsStorage.addMilliseconds(_watchMsBuffer);
+        _watchMsBuffer = 0;
+      }
+    }
   }
 
   void mediaEnd() {}
@@ -1222,8 +1637,14 @@ class PlayerController extends GetxController
     _closed = true;
     Log.w('播放器关闭');
     HardwareKeyboard.instance.removeHandler(_handleShortcut);
+    cancelSleepTimer();
     hideSeekTipTimer?.cancel();
     hideControlsTimer?.cancel();
+    if (_watchMsBuffer > 0) {
+      WatchStatsStorage.addMilliseconds(_watchMsBuffer);
+      _watchMsBuffer = 0;
+    }
+    WatchStatsStorage.flush();
     if (!(Platform.isAndroid || Platform.isIOS)) {
       windowManager.removeListener(this);
     }

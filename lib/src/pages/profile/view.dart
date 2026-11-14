@@ -1,12 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:flutter_svg/svg.dart';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:xs/src/pages/profile/controller.dart';
+import 'package:xs/src/pages/settings/storage/play_history_storage.dart';
+import 'package:xs/src/pages/settings/storage/watch_stats_storage.dart';
 import 'package:xs/src/utils/app_style.dart';
 import 'package:xs/src/utils/color.dart';
 import 'package:xs/src/utils/desktop.dart';
+import 'package:xs/src/utils/utils.dart';
 import 'package:xs/src/widgets/desktop_shell.dart';
 import 'package:xs/src/widgets/drag_to_move_bar.dart';
 import 'package:xs/src/widgets/multi_sliver_compat/sliver_persistent_header_delegate.dart';
@@ -135,12 +139,96 @@ class ProfilePage extends StatelessWidget {
   }
 }
 
+String formatWatchDuration(int seconds) {
+  if (seconds <= 0) {
+    return '0 分钟';
+  }
+  final hours = seconds ~/ 3600;
+  final minutes = (seconds % 3600) ~/ 60;
+  if (hours > 0) {
+    return minutes > 0 ? '$hours 小时 $minutes 分' : '$hours 小时';
+  }
+  if (minutes > 0) {
+    return '$minutes 分钟';
+  }
+  return '$seconds 秒';
+}
+
+Widget _statTile(String title, String value) {
+  return ListTile(
+    title: Text(title),
+    trailing: Text(value, style: const TextStyle(fontSize: 14)),
+  );
+}
+
+void showWatchStats() {
+  WatchStatsStorage.flush();
+  final history = PlayHistoryStorage.history;
+  var episodes = 0;
+  for (final item in history) {
+    if (item is Map && item['episodes'] is List) {
+      episodes += (item['episodes'] as List).length;
+    }
+  }
+  Utils.showBottomSheet(
+    title: '观看统计',
+    child: ListView(
+      padding: AppStyle.edgeInsetsV12,
+      children: [
+        SettingsCard(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _statTile(
+                '累计观看',
+                formatWatchDuration(WatchStatsStorage.totalSeconds),
+              ),
+              AppStyle.divider,
+              _statTile(
+                '本周观看',
+                formatWatchDuration(WatchStatsStorage.weekSeconds),
+              ),
+              AppStyle.divider,
+              _statTile('已看完集数', '${WatchStatsStorage.completedCount} 集'),
+              AppStyle.divider,
+              _statTile('观看过的剧集', '$episodes 集'),
+              AppStyle.divider,
+              _statTile('追番数量', '${history.length} 部'),
+            ],
+          ),
+        ),
+        const Padding(
+          padding: EdgeInsets.all(12),
+          child: Text(
+            '统计仅保存在本地，不会上传。',
+            style: TextStyle(fontSize: 12, color: Colors.grey),
+          ),
+        ),
+        TextButton(
+          onPressed: () async {
+            final confirmed =
+                await Utils.showAlertDialog('确定要清空观看统计吗？', title: '清空统计');
+            if (!confirmed) {
+              return;
+            }
+            WatchStatsStorage.reset();
+            Get.back();
+            SmartDialog.showToast('已清空观看统计');
+          },
+          child: const Text('清空统计'),
+        ),
+      ],
+    ),
+  );
+}
+
 class ProfileView extends StatelessWidget {
   const ProfileView({super.key});
 
   @override
   Widget build(BuildContext context) {
     Brightness currentBrightness = MediaQuery.of(context).platformBrightness;
+
     // 设置状态栏图标的亮度
     SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle(
       statusBarIconBrightness: currentBrightness == Brightness.light
@@ -239,6 +327,11 @@ class ProfileView extends StatelessWidget {
                             onTap: () {
                               Get.toNamed('/play_history');
                             },
+                          ),
+                          AppStyle.divider,
+                          const SettingsAction(
+                            title: '观看统计',
+                            onTap: showWatchStats,
                           ),
                           AppStyle.divider,
                           SettingsAction(

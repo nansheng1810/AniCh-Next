@@ -11,7 +11,7 @@
 ![Platform](https://img.shields.io/badge/Platform-Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white)
 ![Flutter](https://img.shields.io/badge/Flutter-3.22.3-02569B?style=for-the-badge&logo=flutter&logoColor=white)
 ![Dart](https://img.shields.io/badge/Dart-3.4.4-0175C2?style=for-the-badge&logo=dart&logoColor=white)
-![Version](https://img.shields.io/badge/Version-1.1.0-7F5AF0?style=for-the-badge&logo=git&logoColor=white)
+![Version](https://img.shields.io/badge/Version-1.2.0-7F5AF0?style=for-the-badge&logo=git&logoColor=white)
 
 ![Stars](https://img.shields.io/github/stars/nansheng1810/AniCh-Next?style=for-the-badge&logo=github&color=FFB86C)
 ![Downloads](https://img.shields.io/github/downloads/nansheng1810/AniCh-Next/total?style=for-the-badge&logo=github&color=FF5C8A)
@@ -103,6 +103,34 @@ GPU 硬件解码 + 4K 渲染，多套着色器引擎按需切换。
 
 </td>
 </tr>
+<tr>
+<td width="50%" valign="top">
+
+<b>💬 外挂字幕</b><br/>
+加载 SRT / ASS / SSA / VTT，字号、描边、加粗、位置与延迟实时调节。
+
+</td>
+<td width="50%" valign="top">
+
+<b>⏭️ 片头片尾</b><br/>
+按番剧标记片头结束与片尾开始，自动跳过并衔接下一集。
+
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+
+<b>🌙 睡眠定时</b><br/>
+15–90 分钟定时暂停或本集播完后暂停，睡前追番不熬夜。
+
+</td>
+<td width="50%" valign="top">
+
+<b>📊 观看统计</b><br/>
+累计 / 本周观看时长、看完集数与追番数量，本地统计随时清空。
+
+</td>
+</tr>
 </table>
 
 ---
@@ -132,7 +160,7 @@ GPU 硬件解码 + 4K 渲染，多套着色器引擎按需切换。
 
 [![Download Windows](https://img.shields.io/badge/Download_Windows-AniCh--Next-7F5AF0?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/nansheng1810/AniCh-Next/releases/latest)
 
-`AniCh-1.1.0-Setup.exe` · 约 24.5 MB · 支持简体中文 / English
+`AniCh-1.2.0-Setup.exe` · 约 24.5 MB · 支持简体中文 / English
 
 </div>
 
@@ -169,6 +197,20 @@ GPU 硬件解码 + 4K 渲染，多套着色器引擎按需切换。
 - 新增「隐藏侧栏」按钮，返回主界面按钮不再被视频层遮挡。
 - 删除图片页、我的页、番剧库、番剧详情页中重复的关闭按钮。
 - 修复从播放页返回番剧详情时出现灰块或空白的问题，并补充加载动画与错误兜底。
+
+</details>
+
+<details open>
+<summary><b>▶️ 播放增强（1.2.0）</b></summary>
+
+- 新增外挂字幕：加载本地 SRT / ASS / SSA / VTT，支持字号、描边、加粗、底部距离与字幕延迟实时调节，换集 / 换线路自动重新挂载。
+- 新增片头片尾标记：按番剧记录片头结束与片尾开始，自动跳过片头、片尾直接衔接下一集。
+- 新增播放行为设置：进入播放页自动全屏、自动连播、长按画面临时倍速（2.0–4.0X）。
+- 新增睡眠定时：15 / 30 / 45 / 60 / 90 分钟后暂停，或本集播完后暂停。
+- 新增 A-B 循环：在播放页任意设置 A / B 点循环播放（增强功能）。
+- 新增观看统计：累计 / 本周观看时长、已看完集数、观看过的剧集与追番数量，本地保存并可一键清空（增强功能）。
+- 新增播放器日志面板：在播放设置内查看、复制、清空最近的播放日志。
+- 手机端与桌面端播放设置合并为同一组件，新增设置不再需要两处重复维护。
 
 </details>
 
@@ -241,7 +283,7 @@ flutter build windows --release
 ISCC.exe installer\AniCh.iss
 ```
 
-输出 `dist\AniCh-1.1.0-Setup.exe`。如构建目录不在默认位置，可传入 `/DBuildDir="..."`。
+输出 `dist\AniCh-1.2.0-Setup.exe`。如构建目录不在默认位置，可传入 `/DBuildDir="..."`。
 
 ---
 
@@ -279,7 +321,7 @@ ISCC.exe installer\AniCh.iss
 ## 📄 说明
 
 > [!IMPORTANT]
-> 当前源码版本 `1.1.0+2`。
+> 当前源码版本 `1.2.0+3`。
 >
 > 本项目完全开源，源码可自由查看、修改与分发。
 >

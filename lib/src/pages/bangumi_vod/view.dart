@@ -434,16 +434,20 @@ class BangumiVodPageState extends State<BangumiVodPage> {
   Widget buildMediaPlayer(BangumiVodPageController controller) {
     return Stack(
       children: [
-        Video(
-          key: controller.globalPlayerKey,
-          controller: controller.videoController,
-          pauseUponEnteringBackgroundMode: true,
-          resumeUponEnteringForegroundMode: true,
-          controls: (state) {
-            return playerControls(state, controller);
-          },
-          aspectRatio: controller.aspectRatio,
-          fit: controller.boxFit,
+        Obx(
+          () => Video(
+            key: controller.globalPlayerKey,
+            controller: controller.videoController,
+            pauseUponEnteringBackgroundMode: true,
+            resumeUponEnteringForegroundMode: true,
+            controls: (state) {
+              return playerControls(state, controller);
+            },
+            aspectRatio: controller.aspectRatio,
+            fit: controller.boxFit,
+            subtitleViewConfiguration:
+                controller.buildSubtitleViewConfiguration(),
+          ),
         ),
         // Obx(
         //   () => Visibility(

@@ -15,9 +15,7 @@ import 'package:xs/src/widgets/drag_to_move_bar.dart';
 import 'package:xs/src/widgets/ns_danmaku/danmaku_view.dart';
 import 'package:xs/src/widgets/ns_danmaku/models/danmaku_item.dart';
 import 'package:xs/src/widgets/ns_danmaku/models/danmaku_option.dart';
-import 'package:xs/src/widgets/player/upscaler.dart';
-import 'package:xs/src/widgets/settings/settings_card.dart';
-import 'package:xs/src/widgets/settings/settings_switch.dart';
+import 'package:xs/src/widgets/player/player_settings_view.dart';
 
 final Widget danmakuOffIcon = SvgPicture.asset('assets/icons/danmaku_off.svg',
     width: 24,
@@ -100,6 +98,8 @@ Widget buildFullControls(
               }
               // showFollowUser(controller);
             },
+            onLongPressStart: (_) => controller.startLongPressBoost(),
+            onLongPressEnd: (_) => controller.stopLongPressBoost(),
             onVerticalDragStart: controller.onVerticalDragStart,
             onVerticalDragUpdate: controller.onVerticalDragUpdate,
             onVerticalDragEnd: controller.onVerticalDragEnd,
@@ -557,6 +557,8 @@ Widget buildControls(
             onHorizontalDragUpdate: controller.onHorizontalDragUpdate,
             onHorizontalDragEnd: controller.onHorizontalDragEnd,
             onLongPress: controller.showDebugInfo,
+            onLongPressStart: (_) => controller.startLongPressBoost(),
+            onLongPressEnd: (_) => controller.stopLongPressBoost(),
             child: MouseRegion(
               onEnter: controller.onEnter,
               onHover: (PointerHoverEvent event) {
@@ -1257,144 +1259,6 @@ void showPlayerSettings(BangumiVodPageController controller) {
     title: '播放设置',
     width: 320,
     useSystem: true,
-    child: Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 10),
-      child: ListView(
-        padding: AppStyle.edgeInsetsV12,
-        children: [
-          Padding(
-            padding: AppStyle.edgeInsetsA12.copyWith(top: 0),
-            child: Text(
-              '画质',
-              style: Get.textTheme.titleSmall,
-            ),
-          ),
-          Obx(
-            () => SettingsCard(
-              child: SettingsSwitch(
-                title: '超分辨率',
-                subtitle: 'GPU 硬件解码 + 高质量缩放',
-                value: controller.superResolution.value,
-                onChanged: controller.toggleSuperResolution,
-              ),
-            ),
-          ),
-          Obx(
-            () => SettingsCard(
-              child: SettingsSwitch(
-                title: '4K 渲染',
-                subtitle: '固定 3840×2160 视频输出（需要 GPU 性能）',
-                value: controller.render4K.value,
-                onChanged: controller.toggleRender4K,
-              ),
-            ),
-          ),
-          Obx(
-            () => SettingsCard(
-              child: ListTile(
-                title: const Text('超分引擎'),
-                subtitle: Text(
-                  controller.upscaler.value.description,
-                  style: const TextStyle(color: Colors.grey, fontSize: 12),
-                ),
-                trailing: Text(controller.upscaler.value.label),
-                onTap: controller.showUpscalerPicker,
-              ),
-            ),
-          ),
-          Padding(
-            padding: AppStyle.edgeInsetsA12.copyWith(top: 12),
-            child: Text(
-              '画面尺寸',
-              style: Get.textTheme.titleSmall,
-            ),
-          ),
-          SettingsCard(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Obx(
-                  () => SettingsSwitch(
-                    title: '适应',
-                    value: controller.scaleMode.value == 0,
-                    onChanged: (e) {
-                      controller.updateScaleMode(0);
-                    },
-                  ),
-                ),
-                AppStyle.divider,
-                Obx(
-                  () => SettingsSwitch(
-                    title: '拉伸',
-                    value: controller.scaleMode.value == 1,
-                    onChanged: (e) {
-                      controller.updateScaleMode(1);
-                    },
-                  ),
-                ),
-                AppStyle.divider,
-                Obx(
-                  () => SettingsSwitch(
-                    title: '铺满',
-                    value: controller.scaleMode.value == 2,
-                    onChanged: (e) {
-                      controller.updateScaleMode(2);
-                    },
-                  ),
-                ),
-                AppStyle.divider,
-                Obx(
-                  () => SettingsSwitch(
-                    title: '16:9',
-                    value: controller.scaleMode.value == 3,
-                    onChanged: (e) {
-                      controller.updateScaleMode(3);
-                    },
-                  ),
-                ),
-                AppStyle.divider,
-                Obx(
-                  () => SettingsSwitch(
-                    title: '4:3',
-                    value: controller.scaleMode.value == 4,
-                    onChanged: (e) {
-                      controller.updateScaleMode(4);
-                    },
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Padding(
-            padding: AppStyle.edgeInsetsA12.copyWith(top: 12),
-            child: Text(
-              '播放速度',
-              style: Get.textTheme.titleSmall,
-            ),
-          ),
-          SettingsCard(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: controller.speedsList.map((rate) {
-                return Obx(
-                  () => Column(
-                    children: [
-                      SettingsSwitch(
-                        title: '${rate}X',
-                        value: controller.playerSpeed.value == rate,
-                        onChanged: (e) {
-                          controller.setPlaybackSpeed(rate);
-                        },
-                      ),
-                      AppStyle.divider
-                    ],
-                  ),
-                );
-              }).toList(),
-            ),
-          ),
-        ],
-      ),
-    ),
+    child: PlayerSettingsView(controller: controller),
   );
 }

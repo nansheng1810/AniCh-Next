@@ -14,6 +14,9 @@ import 'package:xs/src/pages/bangumi_detail/models/bangumi_detail_model.dart';
 import 'package:xs/src/pages/bangumi_vod/models/qq_video_model.dart';
 import 'package:xs/src/pages/download/download_manager.dart';
 import 'package:xs/src/pages/settings/storage/play_history_storage.dart';
+import 'package:xs/src/pages/settings/storage/playback_markers.dart';
+import 'package:xs/src/pages/settings/storage/player_storage.dart';
+import 'package:xs/src/pages/settings/storage/watch_stats_storage.dart';
 import 'package:xs/src/utils/account.dart';
 import 'package:xs/src/utils/time.dart';
 import 'package:xs/src/widgets/danmaku_settings/storage.dart';
@@ -28,9 +31,7 @@ import 'package:xs/src/widgets/ns_danmaku/danmaku_controller.dart';
 import 'package:xs/src/widgets/ns_danmaku/models/danmaku_item.dart';
 import 'package:xs/src/widgets/ns_danmaku/utils.dart';
 import 'package:xs/src/widgets/player/controller.dart';
-import 'package:xs/src/widgets/player/upscaler.dart';
-import 'package:xs/src/widgets/settings/settings_card.dart';
-import 'package:xs/src/widgets/settings/settings_switch.dart';
+import 'package:xs/src/widgets/player/player_settings_view.dart';
 
 const String assetName = 'assets/images/no_image.svg';
 final Widget noImage = SvgPicture.asset(assetName);
@@ -102,6 +103,10 @@ class BangumiVodPageController extends PlayerController
   RxInt lastPosition = 0.obs;
 
   RxBool playing = true.obs;
+
+  // 片头/片尾自动跳过只在本集触发一次，避免用户回看时被反复跳走
+  bool _introSkipped = false;
+  bool _outroHandled = false;
 
   @override
   void onInit() {
@@ -176,7 +181,10 @@ class BangumiVodPageController extends PlayerController
         lastPosition(0);
         await player.seek(thisLastPosition);
         debugPrint('跳转到$thisLastPosition');
+        // 本次回调的位置是跳转前的位置，等下一帧再处理片头片尾
+        return;
       }
+      _handleAutoSkip(currentinSeconds);
       if ((inSeconds - currentinSeconds).abs() >= 5) {
         inSeconds = currentinSeconds;
         final date = DateTime.now().millisecondsSinceEpoch;
@@ -595,6 +603,8 @@ class BangumiVodPageController extends PlayerController
       currentLineInfo.value =
           localPath != null ? '本地缓存' : '线路${currentLineIndex + 1}';
       Map<String, String> headers = {};
+      _introSkipped = false;
+      _outroHandled = false;
       await player.open(
         Media(
           localPath != null ? Uri.file(localPath).toString() : networkUrl,
@@ -607,6 +617,9 @@ class BangumiVodPageController extends PlayerController
       await applySuperResolution();
       await applyRenderSize();
       await applyUpscaler();
+      // 换集/换线路后重新挂载外挂字幕，并按需自动全屏
+      await applySubtitleTrack();
+      await maybeEnterAutoFullscreen();
 
       // final history = box.read(id.toString());
       // if (history != null) {
@@ -618,6 +631,59 @@ class BangumiVodPageController extends PlayerController
 
       Log.d('播放链接\r\n：${urlDecode(playUrls[currentLineIndex].url)}');
     }
+  }
+
+  // 片头/片尾自动跳过
+  void _handleAutoSkip(int position) {
+    // 时长未知时说明媒体还没加载好，此时 seek 也不会生效
+    if (player.state.duration <= Duration.zero) {
+      return;
+    }
+    final markers = PlaybackMarkersStorage.read(id);
+    if (PlayerSettingsStorage.skipIntro &&
+        markers.hasIntro &&
+        !_introSkipped &&
+        position < markers.introEnd) {
+      _introSkipped = true;
+      player.seek(Duration(seconds: markers.introEnd));
+      SmartDialog.showToast('已跳过片头');
+      return;
+    }
+    if (PlayerSettingsStorage.skipOutro &&
+        markers.hasOutro &&
+        !_outroHandled &&
+        position >= markers.outroStart) {
+      _outroHandled = true;
+      if (sleepAtEpisodeEnd.value) {
+        cancelSleepTimer();
+        player.pause();
+        SmartDialog.showToast('已到片尾，本集播放结束');
+        return;
+      }
+      if (nextEpisodeData() != null) {
+        SmartDialog.showToast('已跳过片尾，播放下一集');
+        playNextEpisode();
+      } else if (player.state.duration > Duration.zero) {
+        player.seek(player.state.duration);
+      }
+    }
+  }
+
+  // 本集播放结束：记录完成集数，按设置自动连播或暂停
+  @override
+  void mediaEnd() {
+    WatchStatsStorage.addCompleted(id, episode);
+    if (sleepAtEpisodeEnd.value) {
+      cancelSleepTimer();
+      showControls();
+      SmartDialog.showToast('本集播放结束，已停止播放');
+      return;
+    }
+    if (autoPlayNext.value && nextEpisodeData() != null) {
+      playNextEpisode();
+      return;
+    }
+    showControls();
   }
 
   // 获取集数据
@@ -882,147 +948,7 @@ class BangumiVodPageController extends PlayerController
     Utils.showBottomSheet(
       scrollControlDisabledMaxHeightRatio: 0.7,
       title: '播放设置',
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10),
-        child: ListView(
-          padding: AppStyle.edgeInsetsV12,
-          children: [
-            Padding(
-              padding: AppStyle.edgeInsetsA12.copyWith(top: 0),
-              child: Text(
-                '画质',
-                style: Get.textTheme.titleSmall,
-              ),
-            ),
-            Obx(
-              () => SettingsCard(
-                child: SettingsSwitch(
-                  title: '超分辨率',
-                  subtitle: 'GPU 硬件解码 + 高质量缩放',
-                  value: superResolution.value,
-                  onChanged: toggleSuperResolution,
-                ),
-              ),
-            ),
-            Obx(
-              () => SettingsCard(
-                child: SettingsSwitch(
-                  title: '4K 渲染',
-                  subtitle: '固定 3840×2160 视频输出（需要 GPU 性能）',
-                  value: render4K.value,
-                  onChanged: toggleRender4K,
-                ),
-              ),
-            ),
-            Obx(
-              () => SettingsCard(
-                child: ListTile(
-                  title: const Text('超分引擎'),
-                  subtitle: Text(
-                    upscaler.value.description,
-                    style: const TextStyle(color: Colors.grey, fontSize: 12),
-                  ),
-                  trailing: Text(upscaler.value.label),
-                  onTap: showUpscalerPicker,
-                ),
-              ),
-            ),
-            Padding(
-              padding: AppStyle.edgeInsetsA12.copyWith(top: 12),
-              child: Text(
-                '画面尺寸',
-                style: Get.textTheme.titleSmall,
-              ),
-            ),
-            SettingsCard(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Obx(
-                    () => SettingsSwitch(
-                      title: '适应',
-                      value: scaleMode.value == 0,
-                      onChanged: (e) {
-                        updateScaleMode(0);
-                      },
-                    ),
-                  ),
-                  AppStyle.divider,
-                  Obx(
-                    () => SettingsSwitch(
-                      title: '拉伸',
-                      value: scaleMode.value == 1,
-                      onChanged: (e) {
-                        updateScaleMode(1);
-                      },
-                    ),
-                  ),
-                  AppStyle.divider,
-                  Obx(
-                    () => SettingsSwitch(
-                      title: '铺满',
-                      value: scaleMode.value == 2,
-                      onChanged: (e) {
-                        updateScaleMode(2);
-                      },
-                    ),
-                  ),
-                  AppStyle.divider,
-                  Obx(
-                    () => SettingsSwitch(
-                      title: '16:9',
-                      value: scaleMode.value == 3,
-                      onChanged: (e) {
-                        updateScaleMode(3);
-                      },
-                    ),
-                  ),
-                  AppStyle.divider,
-                  Obx(
-                    () => SettingsSwitch(
-                      title: '4:3',
-                      value: scaleMode.value == 4,
-                      onChanged: (e) {
-                        updateScaleMode(4);
-                      },
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Padding(
-              padding: AppStyle.edgeInsetsA12.copyWith(top: 12),
-              child: Text(
-                '播放速度',
-                style: Get.textTheme.titleSmall,
-              ),
-            ),
-            SettingsCard(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: speedsList.map((rate) {
-                  return Obx(
-                    () => SizedBox(
-                      child: Column(
-                        children: [
-                          SettingsSwitch(
-                            title: '${rate}X',
-                            value: playerSpeed.value == rate,
-                            onChanged: (e) {
-                              setPlaybackSpeed(rate);
-                            },
-                          ),
-                          AppStyle.divider,
-                        ],
-                      ),
-                    ),
-                  );
-                }).toList(),
-              ),
-            ),
-          ],
-        ),
-      ),
+      child: PlayerSettingsView(controller: this),
     );
   }
 

@@ -60,4 +60,107 @@ class PlayerSettingsStorage {
   static void setUpscaler(String value) {
     box.write('playerUpscaler', value);
   }
+
+  // 进入播放页自动全屏
+  static bool get autoFullscreen {
+    return box.read('playerAutoFullscreen') as bool? ?? false;
+  }
+
+  static void setAutoFullscreen(bool value) {
+    box.write('playerAutoFullscreen', value);
+  }
+
+  // 当前集播完自动播放下一集
+  static bool get autoPlayNext {
+    return box.read('playerAutoPlayNext') as bool? ?? true;
+  }
+
+  static void setAutoPlayNext(bool value) {
+    box.write('playerAutoPlayNext', value);
+  }
+
+  // 长按画面临时倍速
+  static bool get longPressSpeed {
+    return box.read('playerLongPressSpeed') as bool? ?? false;
+  }
+
+  static void setLongPressSpeed(bool value) {
+    box.write('playerLongPressSpeed', value);
+  }
+
+  static double get longPressSpeedValue {
+    final value =
+        (box.read('playerLongPressSpeedValue') as num?)?.toDouble() ?? 2.0;
+    return value.clamp(1.5, 4.0);
+  }
+
+  static void setLongPressSpeedValue(double value) {
+    box.write('playerLongPressSpeedValue', value.clamp(1.5, 4.0));
+  }
+
+  // 自动跳过片头 / 片尾
+  static bool get skipIntro {
+    return box.read('playerSkipIntro') as bool? ?? false;
+  }
+
+  static void setSkipIntro(bool value) {
+    box.write('playerSkipIntro', value);
+  }
+
+  static bool get skipOutro {
+    return box.read('playerSkipOutro') as bool? ?? false;
+  }
+
+  static void setSkipOutro(bool value) {
+    box.write('playerSkipOutro', value);
+  }
+
+  // 外挂字幕样式
+  static double get subtitleFontSize {
+    final value =
+        (box.read('playerSubtitleFontSize') as num?)?.toDouble() ?? 32.0;
+    return value.clamp(16.0, 64.0);
+  }
+
+  static void setSubtitleFontSize(double value) {
+    box.write('playerSubtitleFontSize', value.clamp(16.0, 64.0));
+  }
+
+  static double get subtitleOutline {
+    final value =
+        (box.read('playerSubtitleOutline') as num?)?.toDouble() ?? 2.0;
+    return value.clamp(0.0, 4.0);
+  }
+
+  static void setSubtitleOutline(double value) {
+    box.write('playerSubtitleOutline', value.clamp(0.0, 4.0));
+  }
+
+  static double get subtitleBottomPadding {
+    final value =
+        (box.read('playerSubtitleBottomPadding') as num?)?.toDouble() ?? 24.0;
+    return value.clamp(0.0, 160.0);
+  }
+
+  static void setSubtitleBottomPadding(double value) {
+    box.write('playerSubtitleBottomPadding', value.clamp(0.0, 160.0));
+  }
+
+  static bool get subtitleBold {
+    return box.read('playerSubtitleBold') as bool? ?? false;
+  }
+
+  static void setSubtitleBold(bool value) {
+    box.write('playerSubtitleBold', value);
+  }
+
+  // 字幕延迟（秒），正数表示字幕延后显示
+  static double get subtitleDelay {
+    final value = (box.read('playerSubtitleDelay') as num?)?.toDouble() ?? 0.0;
+    return value.clamp(-10.0, 10.0);
+  }
+
+  static void setSubtitleDelay(double value) {
+    box.write('playerSubtitleDelay', value.clamp(-10.0, 10.0));
+  }
 }

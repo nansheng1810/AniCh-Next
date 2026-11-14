@@ -20,9 +20,21 @@ class Log {
     logFileWriter = null;
   }
 
+  /// 最近播放/应用日志，供播放器内“播放器日志”面板查看。
+  static final RxList<String> recentLogs = <String>[].obs;
+  static const int maxRecentLogs = 300;
+
   static void writeLog(content, [Level level = Level.info]) {
-    logFileWriter
-        ?.write('[${level.name.toUpperCase()}] $_currentTime：$content');
+    final line = '[${level.name.toUpperCase()}] $_currentTime：$content';
+    logFileWriter?.write(line);
+    recentLogs.insert(0, line);
+    if (recentLogs.length > maxRecentLogs) {
+      recentLogs.removeRange(maxRecentLogs, recentLogs.length);
+    }
+  }
+
+  static void clearRecentLogs() {
+    recentLogs.clear();
   }
 
   static RxList<DebugLogModel> debugLogs = <DebugLogModel>[].obs;
