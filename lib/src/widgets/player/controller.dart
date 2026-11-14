@@ -124,6 +124,12 @@ mixin PlayerStateMixin on PlayerMixin {
     );
   }
 
+  // 超分引擎可调参数（键为 "引擎id:参数名"）
+  RxMap<String, double> upscalerParams =
+      PlayerSettingsStorage.upscalerNumeric.obs;
+  RxMap<String, String> upscalerChoices =
+      PlayerSettingsStorage.upscalerChoices.obs;
+
   // 播放倍速
   RxDouble playerSpeed = 1.0.obs;
   final List<double> speedsList = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0];
@@ -585,9 +591,43 @@ mixin PlayerStateMixin on PlayerMixin {
     applyRenderSize();
   }
 
+  double upscalerParamValue(UpscalerEngine engine, UpscalerParamSpec spec) {
+    return upscalerParams['${engine.id}:${spec.key}'] ?? spec.defaultValue;
+  }
+
+  String upscalerChoiceValue(UpscalerEngine engine, String key) {
+    return upscalerChoices['${engine.id}:$key'] ??
+        anime4kDefaults[key] ??
+        'off';
+  }
+
+  Map<String, double> _upscalerParamsFor(UpscalerEngine engine) {
+    return {
+      for (final spec
+          in upscalerParamSpecs[engine] ?? const <UpscalerParamSpec>[])
+        spec.key: upscalerParamValue(engine, spec),
+    };
+  }
+
+  Map<String, String> _upscalerChoicesFor(UpscalerEngine engine) {
+    if (engine != UpscalerEngine.anime4k) {
+      return const {};
+    }
+    return {
+      for (final spec in anime4kChoiceSpecs)
+        spec.key: upscalerChoiceValue(engine, spec.key),
+    };
+  }
+
   // 应用超分引擎着色器
   Future<void> applyUpscaler() async {
-    await UpscalerShaderManager.apply(player, upscaler.value);
+    final engine = upscaler.value;
+    await UpscalerShaderManager.apply(
+      player,
+      engine,
+      params: _upscalerParamsFor(engine),
+      choices: _upscalerChoicesFor(engine),
+    );
   }
 
   // 切换超分引擎并持久化（着色器需要目标输出尺寸才会真正参与放大）
@@ -600,6 +640,56 @@ mixin PlayerStateMixin on PlayerMixin {
     PlayerSettingsStorage.setUpscaler(engine.id);
     applyUpscaler();
     applyRenderSize();
+  }
+
+  // 修改引擎数值参数；apply 为 false 时只更新 UI，等拖动结束再重载着色器
+  void setUpscalerParam(
+    UpscalerEngine engine,
+    String key,
+    double value, {
+    bool apply = true,
+  }) {
+    final storageKey = '${engine.id}:$key';
+    upscalerParams[storageKey] = value;
+    PlayerSettingsStorage.setUpscalerNumeric(storageKey, value);
+    if (apply) {
+      applyUpscaler();
+    }
+  }
+
+  // 修改 Anime4K 组合选项
+  void setUpscalerChoice(UpscalerEngine engine, String key, String value) {
+    void write(String choiceKey, String choiceValue) {
+      final storageKey = '${engine.id}:$choiceKey';
+      upscalerChoices[storageKey] = choiceValue;
+      PlayerSettingsStorage.setUpscalerChoice(storageKey, choiceValue);
+    }
+
+    write(key, value);
+    if (key == 'preset' && anime4kPresets.containsKey(value)) {
+      // 预设：先套用预设值，其余画质项回到默认
+      for (final spec in anime4kChoiceSpecs) {
+        if (spec.key == 'preset') {
+          continue;
+        }
+        write(
+          spec.key,
+          anime4kPresets[value]![spec.key] ?? 'off',
+        );
+      }
+      write('clamp', '1');
+    } else if (key != 'preset') {
+      write('preset', 'custom');
+    }
+    applyUpscaler();
+  }
+
+  // 恢复当前引擎的默认参数
+  void resetUpscalerOptions(UpscalerEngine engine) {
+    PlayerSettingsStorage.resetUpscalerOptions('${engine.id}:');
+    upscalerParams.assignAll(PlayerSettingsStorage.upscalerNumeric);
+    upscalerChoices.assignAll(PlayerSettingsStorage.upscalerChoices);
+    applyUpscaler();
   }
 
   // 超分引擎选择面板
@@ -635,6 +725,119 @@ mixin PlayerStateMixin on PlayerMixin {
           }).toList(),
         ),
       ),
+    );
+  }
+
+  // 超分参数面板：数值滑块 + Anime4K 模型选项
+  void showUpscalerSettings() {
+    final engine = upscaler.value;
+    if (!engine.configurable) {
+      SmartDialog.showToast('${engine.label} 没有可调参数');
+      return;
+    }
+    Utils.showBottomSheet(
+      title: '超分参数 · ${engine.label}',
+      scrollControlDisabledMaxHeightRatio: 0.8,
+      child: Obx(() => _buildUpscalerSettings(engine)),
+    );
+  }
+
+  Widget _buildUpscalerSettings(UpscalerEngine engine) {
+    final children = <Widget>[];
+    if (engine == UpscalerEngine.anime4k) {
+      for (final spec in anime4kChoiceSpecs) {
+        final current = upscalerChoiceValue(engine, spec.key);
+        final value = spec.options.containsKey(current)
+            ? current
+            : spec.options.keys.first;
+        children.add(
+          ListTile(
+            title: Text(spec.label),
+            trailing: DropdownButton<String>(
+              value: value,
+              isDense: true,
+              underline: const SizedBox.shrink(),
+              items: spec.options.entries
+                  .map(
+                    (e) => DropdownMenuItem(
+                      value: e.key,
+                      child: Text(e.value),
+                    ),
+                  )
+                  .toList(),
+              onChanged: (next) {
+                if (next != null) {
+                  setUpscalerChoice(engine, spec.key, next);
+                }
+              },
+            ),
+          ),
+        );
+      }
+      children.add(
+        SwitchListTile(
+          title: const Text('钳制高光'),
+          subtitle: const Text('避免高光溢出，建议开启'),
+          value: upscalerChoiceValue(engine, 'clamp') != '0',
+          onChanged: (enabled) =>
+              setUpscalerChoice(engine, 'clamp', enabled ? '1' : '0'),
+        ),
+      );
+    }
+    for (final spec
+        in upscalerParamSpecs[engine] ?? const <UpscalerParamSpec>[]) {
+      final value = upscalerParamValue(engine, spec);
+      if (spec.isDefine && spec.max - spec.min <= 1) {
+        children.add(
+          SwitchListTile(
+            title: Text(spec.label),
+            subtitle: Text(spec.key),
+            value: value > 0.5,
+            onChanged: (enabled) =>
+                setUpscalerParam(engine, spec.key, enabled ? 1 : 0),
+          ),
+        );
+        continue;
+      }
+      children.add(
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+          child: Row(
+            children: [
+              Expanded(child: Text(spec.label)),
+              Text(
+                spec.format(value),
+                style: TextStyle(color: Get.theme.colorScheme.primary),
+              ),
+            ],
+          ),
+        ),
+      );
+      children.add(
+        Slider(
+          min: spec.min,
+          max: spec.max,
+          divisions: spec.divisions,
+          value: value.clamp(spec.min, spec.max).toDouble(),
+          label: spec.format(value),
+          onChanged: (v) => setUpscalerParam(engine, spec.key, v, apply: false),
+          onChangeEnd: (v) => setUpscalerParam(engine, spec.key, v),
+        ),
+      );
+    }
+    children.add(
+      Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+        child: TextButton.icon(
+          onPressed: () => resetUpscalerOptions(engine),
+          icon: const Icon(Icons.restart_alt),
+          label: const Text('恢复默认参数'),
+        ),
+      ),
+    );
+    return ListView(
+      padding: AppStyle.edgeInsetsV12,
+      children: children,
     );
   }
 }

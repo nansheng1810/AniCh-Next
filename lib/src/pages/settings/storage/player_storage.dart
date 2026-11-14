@@ -61,6 +61,52 @@ class PlayerSettingsStorage {
     box.write('playerUpscaler', value);
   }
 
+  // 超分引擎数值参数，键为 "引擎id:参数名"
+  static Map<String, double> get upscalerNumeric {
+    final raw = box.read('upscalerNumeric');
+    if (raw is Map) {
+      return raw.map(
+        (key, value) => MapEntry(
+          key.toString(),
+          value is num ? value.toDouble() : 0,
+        ),
+      );
+    }
+    return {};
+  }
+
+  static void setUpscalerNumeric(String key, double value) {
+    final map = upscalerNumeric;
+    map[key] = value;
+    box.write('upscalerNumeric', map);
+  }
+
+  // 超分引擎选项，键为 "引擎id:选项名"
+  static Map<String, String> get upscalerChoices {
+    final raw = box.read('upscalerChoices');
+    if (raw is Map) {
+      return raw.map(
+        (key, value) => MapEntry(key.toString(), value.toString()),
+      );
+    }
+    return {};
+  }
+
+  static void setUpscalerChoice(String key, String value) {
+    final map = upscalerChoices;
+    map[key] = value;
+    box.write('upscalerChoices', map);
+  }
+
+  static void resetUpscalerOptions(String prefix) {
+    final numeric = upscalerNumeric
+      ..removeWhere((key, value) => key.startsWith(prefix));
+    final choices = upscalerChoices
+      ..removeWhere((key, value) => key.startsWith(prefix));
+    box.write('upscalerNumeric', numeric);
+    box.write('upscalerChoices', choices);
+  }
+
   // 进入播放页自动全屏
   static bool get autoFullscreen {
     return box.read('playerAutoFullscreen') as bool? ?? false;

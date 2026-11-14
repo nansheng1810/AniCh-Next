@@ -435,6 +435,21 @@ class _PlayerSettingsViewState extends State<PlayerSettingsView> {
             ),
           ),
         ),
+        Obx(
+          () => controller.upscaler.value.configurable
+              ? SettingsCard(
+                  child: ListTile(
+                    title: const Text('超分参数'),
+                    subtitle: Text(
+                      '调整 ${controller.upscaler.value.label} 的模型与参数',
+                      style: const TextStyle(color: Colors.grey, fontSize: 12),
+                    ),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: controller.showUpscalerSettings,
+                  ),
+                )
+              : const SizedBox.shrink(),
+        ),
         _sectionTitle('画面尺寸'),
         SettingsCard(
           child: Column(

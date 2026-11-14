@@ -11,7 +11,7 @@
 ![Platform](https://img.shields.io/badge/Platform-Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white)
 ![Flutter](https://img.shields.io/badge/Flutter-3.22.3-02569B?style=for-the-badge&logo=flutter&logoColor=white)
 ![Dart](https://img.shields.io/badge/Dart-3.4.4-0175C2?style=for-the-badge&logo=dart&logoColor=white)
-![Version](https://img.shields.io/badge/Version-1.3.0-7F5AF0?style=for-the-badge&logo=git&logoColor=white)
+![Version](https://img.shields.io/badge/Version-1.3.1-7F5AF0?style=for-the-badge&logo=git&logoColor=white)
 
 ![Stars](https://img.shields.io/github/stars/nansheng1810/AniCh-Next?style=for-the-badge&logo=github&color=FFB86C)
 ![Downloads](https://img.shields.io/github/downloads/nansheng1810/AniCh-Next/total?style=for-the-badge&logo=github&color=FF5C8A)
@@ -57,7 +57,7 @@
 <td width="50%" valign="top">
 
 <b>⚡ 实时超分辨率</b><br/>
-GPU 硬件解码 + 4K 渲染，多套着色器引擎按需切换。
+GPU 硬件解码 + 4K 渲染，7 套超分引擎、49 个 Anime4K 模型，参数可调。
 
 </td>
 </tr>
@@ -202,7 +202,7 @@ JSON / XML 弹幕导入导出、多来源合并去重，按关键词搜索并跳
 
 [![Download Windows](https://img.shields.io/badge/Download_Windows-AniCh--Next-7F5AF0?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/nansheng1810/AniCh-Next/releases/latest)
 
-`AniCh-1.3.0-Setup.exe` · 约 24.7 MB · 支持简体中文 / English
+`AniCh-1.3.1-Setup.exe` · 约 26.0 MB · 支持简体中文 / English
 
 </div>
 
@@ -239,6 +239,16 @@ JSON / XML 弹幕导入导出、多来源合并去重，按关键词搜索并跳
 - 新增「隐藏侧栏」按钮，返回主界面按钮不再被视频层遮挡。
 - 删除图片页、我的页、番剧库、番剧详情页中重复的关闭按钮。
 - 修复从播放页返回番剧详情时出现灰块或空白的问题，并补充加载动画与错误兜底。
+
+</details>
+
+<details open>
+<summary><b>🔍 1.3.1 超分增强</b></summary>
+
+- 超分引擎内置完整 Anime4K v4 模型库：CNN S / M / L / VL / UL、Soft、GAN、去噪 CNN、DoG、DTD、3D 图形等 49 个着色器。
+- Anime4K 支持画质预设（极速 / 均衡 / 高质量 / 极致 / GAN / 去噪 / 去模糊 / 3D）以及线稿修复、放大模型、去噪、去模糊、线条细化、线条压暗、自动降采样、高光钳制等可组合选项。
+- FSR / NIS / SGSR / BCAS / Sharp Bilinear 新增参数滑块：锐化强度、边缘阈值、双边平滑、HDR 模式、非线性降采样等。
+- 参数按引擎独立保存，支持一键恢复默认；调整后自动重新加载 mpv 着色器。
 
 </details>
 
@@ -338,7 +348,7 @@ flutter build windows --release
 ISCC.exe installer\AniCh.iss
 ```
 
-输出 `dist\AniCh-1.3.0-Setup.exe`。如构建目录不在默认位置，可传入 `/DBuildDir="..."`。
+输出 `dist\AniCh-1.3.1-Setup.exe`。如构建目录不在默认位置，可传入 `/DBuildDir="..."`。
 
 ---
 
@@ -376,7 +386,7 @@ ISCC.exe installer\AniCh.iss
 ## 📄 说明
 
 > [!IMPORTANT]
-> 当前源码版本 `1.3.0+4`。
+> 当前源码版本 `1.3.1+5`。
 >
 > 本项目完全开源，源码可自由查看、修改与分发。
 >
