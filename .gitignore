@@ -1,0 +1,44 @@
+# Flutter / Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+build/
+dist/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Windows
+windows/flutter/ephemeral/
+windows/runner/Release/
+windows/runner/Debug/
+
+# Android
+android/key.properties
+android/.gradle/
+android/local.properties
+*.jks
+*.keystore
+
+# iOS / macOS
+ios/Pods/
+macos/Pods/
+ios/Flutter/ephemeral/
+macos/Flutter/ephemeral/
+**/xcuserdata/
+*.xcworkspace/xcuserdata/
+
+# Linux
+linux/flutter/ephemeral/
+
+# 系统与日志
+.DS_Store
+Thumbs.db
+*.log
+
+# 本地开发辅助（不随仓库发布）
+.trae/
+.screenshots/
