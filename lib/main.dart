@@ -28,6 +28,7 @@ import 'package:xs/src/utils/notification.dart';
 import 'package:xs/src/utils/app_route_observer.dart';
 import 'package:xs/src/utils/utils.dart';
 import 'package:xs/src/widgets/app_loadding_widget.dart';
+import 'package:xs/src/pages/follow/follow_service.dart';
 import 'package:xs/src/widgets/window_title_bar.dart';
 
 void main() async {
@@ -80,6 +81,8 @@ void main() async {
   await NotificationService.init();
   // 初始化离线缓存
   await Get.put(DownloadManager()).init();
+  // 追番自动化：恢复本地快照并按需启动定时检查
+  await FollowService.instance.init();
   runApp(const MyApp());
 }
 

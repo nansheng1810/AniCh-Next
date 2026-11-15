@@ -5,7 +5,7 @@
 ;   ISCC.exe /DBuildDir="D:\path\to\Release" installer\AniCh.iss
 
 #define AppName "AniCh"
-#define AppVersion "1.3.1"
+#define AppVersion "1.6.0"
 
 #ifndef BuildDir
   #define BuildDir "..\build\windows\x64\runner\Release"
@@ -32,7 +32,7 @@ WizardStyle=modern
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 CloseApplications=yes
-VersionInfoVersion=1.3.1.0
+VersionInfoVersion=1.6.0.0
 VersionInfoCompany=AniCh
 VersionInfoDescription=AniCh 安装程序
 VersionInfoProductName=AniCh

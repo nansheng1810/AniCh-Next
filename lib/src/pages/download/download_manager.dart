@@ -7,6 +7,7 @@ import 'package:get_storage/get_storage.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:xs/src/pages/download/download_settings.dart';
 import 'package:xs/src/pages/download/models/download_task.dart';
+import 'package:xs/src/utils/network.dart';
 import 'package:xs/src/utils/notification.dart';
 
 /// 离线缓存管理器：负责任务持久化、并发队列、暂停/继续与本地文件清理。
@@ -16,10 +17,16 @@ class DownloadManager extends GetxController {
   static const String _storageKey = 'downloadTasks';
 
   final GetStorage _box = GetStorage();
-  final Dio _dio = Dio(BaseOptions(
-    connectTimeout: const Duration(seconds: 15),
-    receiveTimeout: const Duration(minutes: 10),
-  ));
+  final Dio _dio = _createDio();
+
+  static Dio _createDio() {
+    final dio = Dio(BaseOptions(
+      connectTimeout: const Duration(seconds: 15),
+      receiveTimeout: const Duration(minutes: 10),
+    ));
+    applyNetworkSettings(dio);
+    return dio;
+  }
 
   final RxList<DownloadTask> tasks = <DownloadTask>[].obs;
   final Map<String, CancelToken> _cancelTokens = {};

@@ -4,6 +4,8 @@ import 'package:dio/dio.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:xs/protobuf/account.pb.dart';
 import 'package:xs/src/config.dart';
+import 'package:xs/src/pages/settings/storage/network_storage.dart';
+import 'package:xs/src/utils/network.dart';
 
 final box = GetStorage();
 
@@ -26,12 +28,15 @@ class AccountUtil {
 /// token 每次请求重新生成（内含 60 秒有效期），因此不能在创建 Dio 时写死。
 /// 同时统一设置超时，并对 GET 请求做一次自动重试，避免弱网时一直卡在加载中。
 Dio createApiDio({String? baseUrl, bool withAuth = true}) {
+  final timeout = Duration(seconds: NetworkStorage.timeoutSeconds);
+  final retryCount = NetworkStorage.retryCount;
   final dio = Dio(BaseOptions(
       baseUrl: baseUrl ?? '',
-      connectTimeout: const Duration(seconds: 10),
-      receiveTimeout: const Duration(seconds: 20),
-      sendTimeout: const Duration(seconds: 20),
+      connectTimeout: timeout,
+      receiveTimeout: timeout,
+      sendTimeout: timeout,
       headers: {HttpHeaders.userAgentHeader: AppConfig.ua}));
+  applyNetworkSettings(dio);
   if (withAuth) {
     dio.interceptors.add(InterceptorsWrapper(onRequest: (options, handler) {
       final value = AccountUtil.token();
@@ -42,9 +47,9 @@ Dio createApiDio({String? baseUrl, bool withAuth = true}) {
     }));
   }
   dio.interceptors.add(InterceptorsWrapper(onError: (error, handler) async {
-    // 只重试幂等的 GET 请求，且最多重试一次
+    // 只重试幂等的 GET 请求，次数由「网络与数据」设置决定
     final options = error.requestOptions;
-    final retried = options.extra['apiRetried'] == true;
+    final attempts = (options.extra['apiAttempt'] as num?)?.toInt() ?? 0;
     final status = error.response?.statusCode ?? 0;
     final retryable = error.type == DioExceptionType.connectionTimeout ||
         error.type == DioExceptionType.receiveTimeout ||
@@ -52,8 +57,8 @@ Dio createApiDio({String? baseUrl, bool withAuth = true}) {
         status == 408 ||
         status == 429 ||
         status >= 500;
-    if (options.method == 'GET' && retryable && !retried) {
-      options.extra['apiRetried'] = true;
+    if (options.method == 'GET' && retryable && attempts < retryCount) {
+      options.extra['apiAttempt'] = attempts + 1;
       await Future.delayed(const Duration(milliseconds: 400));
       try {
         final response = await dio.fetch(options);

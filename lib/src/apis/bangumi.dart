@@ -2,11 +2,17 @@ import 'package:dio/dio.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:xs/src/config.dart';
 import 'package:xs/src/utils/account.dart';
+import 'package:xs/src/utils/network.dart';
 
 final api = createApiDio(baseUrl: AppConfig.baseUrl);
-final bilibiliApiProxy =
-    Dio(BaseOptions(baseUrl: AppConfig.bilibiliApiProxyUrl));
-final qqVideoApi = Dio(BaseOptions(baseUrl: AppConfig.qqVideoApiUrl));
+final bilibiliApiProxy = _createProxyDio(AppConfig.bilibiliApiProxyUrl);
+final qqVideoApi = _createProxyDio(AppConfig.qqVideoApiUrl);
+
+Dio _createProxyDio(String baseUrl) {
+  final dio = Dio(BaseOptions(baseUrl: baseUrl));
+  applyNetworkSettings(dio);
+  return dio;
+}
 
 final box = GetStorage();
 

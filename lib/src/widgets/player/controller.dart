@@ -113,6 +113,13 @@ mixin PlayerStateMixin on PlayerMixin {
   // 4K 渲染（固定 3840x2160 视频输出）
   RxBool render4K = PlayerSettingsStorage.render4K.obs;
 
+  // 硬件解码方式与 HDR 色调映射
+  RxString hwdec = PlayerSettingsStorage.hwdec.obs;
+  RxString hdrToneMapping = PlayerSettingsStorage.hdrToneMapping.obs;
+
+  // 静音前的音量，用于 M 键恢复
+  double _volumeBeforeMute = 100;
+
   // 超分引擎（mpv 用户着色器）
   Rx<UpscalerEngine> upscaler = _readUpscaler().obs;
 
@@ -519,9 +526,9 @@ mixin PlayerStateMixin on PlayerMixin {
       return;
     }
     try {
+      // 先应用用户选择的解码方式与 HDR 色调映射
+      await applyDecoderSettings();
       if (superResolution.value) {
-        // GPU 硬件解码（不支持硬解时回退软件解码）
-        await platform.setProperty('hwdec', 'auto-safe');
         // GPU 缩放算法
         await platform.setProperty('scale', 'ewa_lanczossharp');
         await platform.setProperty('cscale', 'ewa_lanczossharp');
@@ -531,7 +538,6 @@ mixin PlayerStateMixin on PlayerMixin {
         await platform.setProperty('sigmoid-upscaling', 'yes');
         await platform.setProperty('deband', 'yes');
       } else {
-        await platform.setProperty('hwdec', 'auto');
         await platform.setProperty('scale', 'bilinear');
         await platform.setProperty('cscale', 'bilinear');
         await platform.setProperty('dscale', 'bilinear');
@@ -543,6 +549,37 @@ mixin PlayerStateMixin on PlayerMixin {
     } catch (e) {
       debugPrint(e.toString());
     }
+  }
+
+  // 应用硬件解码与 HDR 色调映射（播放开始与设置变更时调用）
+  Future<void> applyDecoderSettings() async {
+    if (kIsWeb) {
+      return;
+    }
+    final platform = player.platform;
+    if (platform is! NativePlayer) {
+      return;
+    }
+    try {
+      await platform.setProperty('hwdec', hwdec.value);
+      await platform.setProperty('tone-mapping', hdrToneMapping.value);
+    } catch (e) {
+      debugPrint(e.toString());
+    }
+  }
+
+  // 切换硬件解码方式并持久化
+  void setHwdec(String value) {
+    hwdec(value);
+    PlayerSettingsStorage.setHwdec(value);
+    applyDecoderSettings();
+  }
+
+  // 切换 HDR 色调映射并持久化
+  void setHdrToneMapping(String value) {
+    hdrToneMapping(value);
+    PlayerSettingsStorage.setHdrToneMapping(value);
+    applyDecoderSettings();
   }
 
   // 切换超分辨率并持久化
@@ -702,6 +739,7 @@ mixin PlayerStateMixin on PlayerMixin {
           padding: AppStyle.edgeInsetsV12,
           children: UpscalerEngine.values.map((engine) {
             final selected = upscaler.value == engine;
+            final configurable = engine.available && engine.configurable;
             return ListTile(
               enabled: engine.available,
               title: Text(engine.label),
@@ -711,9 +749,24 @@ mixin PlayerStateMixin on PlayerMixin {
                     : '${engine.description}（不支持）',
                 style: const TextStyle(color: Colors.grey, fontSize: 12),
               ),
-              trailing: selected
-                  ? Icon(Icons.check, color: Get.theme.colorScheme.primary)
-                  : null,
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (configurable)
+                    IconButton(
+                      tooltip: '参数',
+                      icon: const Icon(Icons.tune, size: 20),
+                      onPressed: () {
+                        if (!selected) {
+                          setUpscaler(engine);
+                        }
+                        showUpscalerSettings(engine);
+                      },
+                    ),
+                  if (selected)
+                    Icon(Icons.check, color: Get.theme.colorScheme.primary),
+                ],
+              ),
               onTap: () {
                 if (!engine.available) {
                   return;
@@ -729,8 +782,9 @@ mixin PlayerStateMixin on PlayerMixin {
   }
 
   // 超分参数面板：数值滑块 + Anime4K 模型选项
-  void showUpscalerSettings() {
-    final engine = upscaler.value;
+  // [target] 为空时调整当前引擎，传入时直接调整指定引擎
+  void showUpscalerSettings([UpscalerEngine? target]) {
+    final engine = target ?? upscaler.value;
     if (!engine.configurable) {
       SmartDialog.showToast('${engine.label} 没有可调参数');
       return;
@@ -1588,6 +1642,11 @@ class PlayerController extends GetxController
       return false;
     }
     final key = event.logicalKey;
+    final ctrlPressed = HardwareKeyboard.instance.logicalKeysPressed.any(
+      (pressed) =>
+          pressed == LogicalKeyboardKey.controlLeft ||
+          pressed == LogicalKeyboardKey.controlRight,
+    );
     if (key == LogicalKeyboardKey.space) {
       if (event is KeyRepeatEvent) {
         return false;
@@ -1598,6 +1657,17 @@ class PlayerController extends GetxController
         player.play();
       }
       showControls();
+      return true;
+    }
+    // Ctrl + 左右方向键：上一集 / 下一集
+    if (ctrlPressed &&
+        (key == LogicalKeyboardKey.arrowLeft ||
+            key == LogicalKeyboardKey.arrowRight)) {
+      if (key == LogicalKeyboardKey.arrowLeft) {
+        playPreviousEpisode();
+      } else {
+        playNextEpisode();
+      }
       return true;
     }
     if (key == LogicalKeyboardKey.arrowLeft ||
@@ -1616,8 +1686,61 @@ class PlayerController extends GetxController
       _showShortcutTip('音量 ${playerVolume.value.toInt()}%');
       return true;
     }
+    // F：全屏切换
+    if (key == LogicalKeyboardKey.keyF) {
+      if (smallWindowState.value) {
+        exitSmallWindow();
+      } else if (fullScreenState.value) {
+        exitFull();
+      } else {
+        enterFullScreen();
+      }
+      return true;
+    }
+    // M：静音切换
+    if (key == LogicalKeyboardKey.keyM) {
+      if (playerVolume.value > 0) {
+        _volumeBeforeMute = playerVolume.value;
+        setVolume(0);
+      } else {
+        setVolume(_volumeBeforeMute > 0 ? _volumeBeforeMute : 100);
+      }
+      persistVolume();
+      _showShortcutTip(playerVolume.value == 0 ? '已静音' : '音量已恢复');
+      return true;
+    }
+    // [ / ]：倍速调节
+    if (key == LogicalKeyboardKey.bracketLeft ||
+        key == LogicalKeyboardKey.bracketRight) {
+      _stepPlaybackSpeed(key == LogicalKeyboardKey.bracketLeft ? -1 : 1);
+      return true;
+    }
+    // P：桌面端迷你播放器
+    if (key == LogicalKeyboardKey.keyP &&
+        !(Platform.isAndroid || Platform.isIOS)) {
+      if (smallWindowState.value) {
+        exitSmallWindow();
+      } else {
+        enterSmallWindow();
+      }
+      return true;
+    }
     return false;
   }
+
+  // 按倍速列表步进，[ / ] 快捷键使用
+  void _stepPlaybackSpeed(int direction) {
+    final current = speedsList.indexOf(playerSpeed.value);
+    final index = current < 0 ? speedsList.indexOf(1.0) : current;
+    final next = (index + direction).clamp(0, speedsList.length - 1);
+    setPlaybackSpeed(speedsList[next]);
+    _showShortcutTip('${speedsList[next]}X 倍速');
+  }
+
+  // 剧集切换：由播放页子类覆盖，普通 PlayerController 没有剧集概念
+  void playPreviousEpisode() {}
+
+  void playNextEpisode() {}
 
   void _seekRelative(int seconds) {
     final duration = player.state.duration;

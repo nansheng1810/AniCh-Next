@@ -1451,6 +1451,7 @@ class BangumiVodPageController extends PlayerController
   }
 
   // 播放上一集
+  @override
   void playPreviousEpisode() {
     final data = previousEpisodeData();
     if (data != null) {
@@ -1459,6 +1460,7 @@ class BangumiVodPageController extends PlayerController
   }
 
   // 播放下一集
+  @override
   void playNextEpisode() {
     final data = nextEpisodeData();
     if (data != null) {

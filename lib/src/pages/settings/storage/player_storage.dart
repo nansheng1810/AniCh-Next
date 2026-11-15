@@ -52,6 +52,30 @@ class PlayerSettingsStorage {
     box.write('playerRender4K', value);
   }
 
+  // 硬件解码：auto-safe 自动、auto 硬解优先、no 软件解码
+  static String get hwdec {
+    final value = box.read('playerHwdec') as String?;
+    return const {'auto-safe', 'auto', 'no'}.contains(value)
+        ? value!
+        : 'auto-safe';
+  }
+
+  static void setHwdec(String value) {
+    box.write('playerHwdec', value);
+  }
+
+  // HDR 色调映射：bt.2446a 自动、mobius 柔和、hable 鲜艳、clip 关闭
+  static String get hdrToneMapping {
+    final value = box.read('playerHdrToneMapping') as String?;
+    return const {'bt.2446a', 'mobius', 'hable', 'clip'}.contains(value)
+        ? value!
+        : 'bt.2446a';
+  }
+
+  static void setHdrToneMapping(String value) {
+    box.write('playerHdrToneMapping', value);
+  }
+
   // 超分引擎 id（见 UpscalerEngine.id）
   static String get upscaler {
     return box.read('playerUpscaler') as String? ?? 'none';

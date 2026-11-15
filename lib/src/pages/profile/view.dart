@@ -349,6 +349,20 @@ class ProfileView extends StatelessWidget {
                           ),
                           AppStyle.divider,
                           SettingsAction(
+                            title: '追番自动化',
+                            onTap: () {
+                              Get.toNamed('/follow');
+                            },
+                          ),
+                          AppStyle.divider,
+                          SettingsAction(
+                            title: '本地媒体库',
+                            onTap: () {
+                              Get.toNamed('/local_media');
+                            },
+                          ),
+                          AppStyle.divider,
+                          SettingsAction(
                             title: '图片收藏',
                             onTap: () {
                               Get.toNamed('/thread_collection');
@@ -382,6 +396,13 @@ class ProfileView extends StatelessWidget {
                             title: '弹幕设置',
                             onTap: () {
                               Get.toNamed('/danmaku_settings');
+                            },
+                          ),
+                          AppStyle.divider,
+                          SettingsAction(
+                            title: '网络与数据',
+                            onTap: () {
+                              Get.toNamed('/network_settings');
                             },
                           ),
                           AppStyle.divider,

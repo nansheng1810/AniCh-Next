@@ -11,7 +11,7 @@
 ![Platform](https://img.shields.io/badge/Platform-Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white)
 ![Flutter](https://img.shields.io/badge/Flutter-3.22.3-02569B?style=for-the-badge&logo=flutter&logoColor=white)
 ![Dart](https://img.shields.io/badge/Dart-3.4.4-0175C2?style=for-the-badge&logo=dart&logoColor=white)
-![Version](https://img.shields.io/badge/Version-1.3.1-7F5AF0?style=for-the-badge&logo=git&logoColor=white)
+![Version](https://img.shields.io/badge/Version-1.6.0-7F5AF0?style=for-the-badge&logo=git&logoColor=white)
 
 ![Stars](https://img.shields.io/github/stars/nansheng1810/AniCh-Next?style=for-the-badge&logo=github&color=FFB86C)
 ![Downloads](https://img.shields.io/github/downloads/nansheng1810/AniCh-Next/total?style=for-the-badge&logo=github&color=FF5C8A)
@@ -202,7 +202,7 @@ JSON / XML 弹幕导入导出、多来源合并去重，按关键词搜索并跳
 
 [![Download Windows](https://img.shields.io/badge/Download_Windows-AniCh--Next-7F5AF0?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/nansheng1810/AniCh-Next/releases/latest)
 
-`AniCh-1.3.1-Setup.exe` · 约 26.0 MB · 支持简体中文 / English
+`AniCh-1.6.0-Setup.exe` · 约 26.0 MB · 支持简体中文 / English
 
 </div>
 
@@ -239,6 +239,59 @@ JSON / XML 弹幕导入导出、多来源合并去重，按关键词搜索并跳
 - 新增「隐藏侧栏」按钮，返回主界面按钮不再被视频层遮挡。
 - 删除图片页、我的页、番剧库、番剧详情页中重复的关闭按钮。
 - 修复从播放页返回番剧详情时出现灰块或空白的问题，并补充加载动画与错误兜底。
+
+</details>
+
+<details open>
+<summary><b>🌐 1.6.0 网络与数据</b></summary>
+
+- 新增「网络与数据」页面（我的 → 网络与数据）：自定义 HTTP 代理，接口请求与离线下载同时生效。
+- 请求超时可选 10 / 20 / 30 / 60 秒，GET 失败自动重试 0–3 次。
+- 缓存占用查看与一键清理（不会删除离线视频）。
+- 设置与历史一键导出为 JSON、从备份恢复；自动排除登录凭证。
+
+</details>
+
+<details open>
+<summary><b>📁 1.5.0 本地媒体库</b></summary>
+
+- 新增「本地媒体库」页面（我的 → 本地媒体库）：添加任意本地文件夹，递归扫描 MP4 / MKV / AVI / MOV / WebM / FLV / TS / M2TS / M4V / WMV。
+- 内置本地播放器：支持续播、进度条拖动、音量、全屏，空格 / 方向键 / F / Esc 快捷键。
+- 播放进度每 5 秒自动保存；「继续观看」按最近播放排序，可单独清除进度。
+- 支持文件夹管理、文件名搜索、重新扫描；移除文件夹不会删除本地文件。
+
+</details>
+
+<details open>
+<summary><b>📡 1.4.0 追番自动化</b></summary>
+
+- 新增「追番自动化」页面（我的 → 追番自动化）：定时检查「我在看」列表的新集，新集红点标记，支持全部标记已读。
+- 检查间隔可选 30 分钟 / 1 / 3 / 6 / 12 小时；发现新集可发送系统通知。
+- 可选「自动缓存新集」：发现更新时自动用第一条线路创建离线缓存任务。
+- 追番快照保存在本地，首次同步只建立基线，不会误报旧集。
+
+</details>
+
+<details open>
+<summary><b>⌨️ 1.3.4 播放器增强</b></summary>
+
+- 桌面快捷键补全：`F` 全屏、`M` 静音、`[` `]` 倍速、`P` 迷你播放器、`Ctrl + ←/→` 上一集 / 下一集；设置「更多 → 快捷键」可查看完整列表。
+- 「画质」新增解码与 HDR：硬件解码可选自动 / 硬解优先 / 软件解码，HDR 色调映射可选 bt.2446a / mobius / hable / clip，即时生效并记忆。
+
+</details>
+
+<details open>
+<summary><b>🔍 1.3.3 播放设置分类</b></summary>
+
+- 播放设置改为顶部分类切换：播放 / 字幕 / 跳过 / 画质 / 更多，不再是一条超长的设置列表。
+- 播放速度与 A-B 循环归入「播放」；片头片尾与智能片头归入「跳过」；线路、投屏、日志归入「更多」。
+
+</details>
+
+<details open>
+<summary><b>🔍 1.3.2 超分参数入口</b></summary>
+
+- 超分引擎选择面板中，每个可调引擎右侧新增「参数」按钮，点击即可直接打开该引擎的参数面板，无需再进入播放设置查找。
 
 </details>
 
@@ -348,7 +401,7 @@ flutter build windows --release
 ISCC.exe installer\AniCh.iss
 ```
 
-输出 `dist\AniCh-1.3.1-Setup.exe`。如构建目录不在默认位置，可传入 `/DBuildDir="..."`。
+输出 `dist\AniCh-1.6.0-Setup.exe`。如构建目录不在默认位置，可传入 `/DBuildDir="..."`。
 
 ---
 
@@ -386,7 +439,7 @@ ISCC.exe installer\AniCh.iss
 ## 📄 说明
 
 > [!IMPORTANT]
-> 当前源码版本 `1.3.1+5`。
+> 当前源码版本 `1.6.0+11`。
 >
 > 本项目完全开源，源码可自由查看、修改与分发。
 >

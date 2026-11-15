@@ -9,7 +9,9 @@ import 'package:xs/src/pages/bangumi_detail/view.dart';
 import 'package:xs/src/pages/bangumi_vod/view.dart';
 import 'package:xs/src/pages/character/view.dart';
 import 'package:xs/src/pages/download/view.dart';
+import 'package:xs/src/pages/follow/view.dart';
 import 'package:xs/src/pages/home/view.dart';
+import 'package:xs/src/pages/local_media/view.dart';
 import 'package:xs/src/pages/person/view.dart';
 import 'package:xs/src/pages/settings/info.dart';
 import 'package:xs/src/pages/thread_collection/view.dart';
@@ -18,6 +20,7 @@ import 'package:xs/src/pages/search/view.dart';
 import 'package:xs/src/pages/search_panel/view.dart';
 import 'package:xs/src/pages/settings/account.dart';
 import 'package:xs/src/pages/settings/danmaku.dart';
+import 'package:xs/src/pages/settings/network.dart';
 import 'package:xs/src/pages/settings/play_history.dart';
 import 'package:xs/src/pages/settings/theme.dart';
 import 'package:xs/src/pages/tags/view.dart';
@@ -111,6 +114,11 @@ class AppRoute {
         name: '/danmaku_settings',
         page: () => const DanmakuSettingsPage(),
         middlewares: [AuthMiddleware()]),
+    // 网络与数据
+    GetPage(
+        name: '/network_settings',
+        page: () => const NetworkSettingsPage(),
+        middlewares: [AuthMiddleware()]),
     // 版本信息
     GetPage(
         name: '/info',
@@ -127,6 +135,13 @@ class AppRoute {
         name: '/bangumi_collection',
         page: () => const BangumiCollectionPage(),
         middlewares: [AuthMiddleware()]),
+    // 追番自动化
+    GetPage(
+        name: '/follow',
+        page: () => const FollowPage(),
+        middlewares: [AuthMiddleware()]),
+    // 本地媒体库（本地文件，无需登录）
+    GetPage(name: '/local_media', page: () => const LocalMediaPage()),
     // 图片收藏
     GetPage(
         name: '/thread_collection',
